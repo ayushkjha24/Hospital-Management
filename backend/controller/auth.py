@@ -49,6 +49,9 @@ class Login(Resource):
         if not user or not check_password_hash(user.password, password):
             return {"message": "Invalid email or password"}, 401
 
+        if not user.is_active:
+            return {"message": "User account is disabled"}, 403
+
         # Identity as string (fixes JWT "sub must be string" error)
         identity = str(user.id)
 

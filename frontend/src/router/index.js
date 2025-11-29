@@ -1,144 +1,168 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
-import HomeView from '@/views/HomeView.vue'
-import AdminDashboard from "@/views/admin/AdminDashboard.vue";
-import AdminDoctors from "@/views/admin/AdminDoctors.vue";
-import AddDoctor from "@/views/admin/AddDoctor.vue";
-import AdminPatients from "@/views/admin/AdminPatients.vue";
-import PatientHistory from "@/views/admin/PatientHistory.vue";
-import UpcomingAppointments from "@/views/admin/UpcomingAppointments.vue";
-import DoctorDashboard from "@/views/doctor/DoctorDashboard.vue";
-import PatientDashboard from "@/views/patient/PatientDashboard.vue";
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: () => import('@/views/HomeView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { requiresAuth: false }
+  },
+
+  // Admin routes
+  {
+    path: '/admin',
+    redirect: { name: 'AdminDashboard' }
+  },
+  {
+    path: '/admin/dashboard',
+    name: 'AdminDashboard',
+    component: () => import('@/views/admin/AdminDashboard.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/doctors',
+    name: 'AdminDoctors',
+    component: () => import('@/views/admin/AdminDoctors.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/doctors/add',
+    name: 'AddDoctor',
+    component: () => import('@/views/admin/AddDoctor.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/doctors/edit/:id',
+    name: 'EditDoctor',
+    component: () => import('@/views/admin/AddDoctor.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/patients',
+    name: 'AdminPatients',
+    component: () => import('@/views/admin/AdminPatients.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/edit-patient/:id',
+    name: 'EditPatient',
+    component: () => import('@/views/admin/AdminPatients.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/appointments',
+    name: 'AdminAppointments',
+    component: () => import('@/views/admin/UpcomingAppointments.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
+    path: '/admin/patient-history/:id',
+    name: 'AdminPatientHistory',
+    component: () => import('@/views/admin/PatientHistory.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+
+  // Doctor routes
+  {
+    path: '/doctor',
+    redirect: { name: 'DoctorDashboard' }
+  },
+  {
+    path: '/doctor/dashboard',
+    name: 'DoctorDashboard',
+    component: () => import('@/views/doctor/DoctorDashboard.vue'),
+    meta: { requiresAuth: true, roles: ['doctor'] }
+  },
+  {
+    path: '/doctor/availability',
+    name: 'DoctorAvailability',
+    component: () => import('@/views/doctor/DoctorAvailability.vue'),
+    meta: { requiresAuth: true, roles: ['doctor'] }
+  },
+  {
+    path: '/doctor/history/:id',
+    name: 'DoctorPatientHistory',
+    component: () => import('@/views/doctor/DoctorPatientHistory.vue'),
+    meta: { requiresAuth: true, roles: ['doctor'] }
+  },
+  {
+    path: '/doctor/history/update/:id',
+    name: 'DoctorHistoryUpdate',
+    component: () => import('@/views/doctor/DoctorHistoryUpdate.vue'),
+    meta: { requiresAuth: true, roles: ['doctor'] }
+  },
+
+  // Patient routes
+  {
+    path: '/patient',
+    redirect: { name: 'PatientDashboard' }
+  },
+  {
+    path: '/patient/dashboard',
+    name: 'PatientDashboard',
+    component: () => import('@/views/patient/PatientDashboard.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/profile',
+    name: 'PatientProfile',
+    component: () => import('@/views/patient/PatientProfile.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/departments',
+    name: 'PatientDepartments',
+    component: () => import('@/views/patient/DepartmentDetails.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/doctors/:specialization',
+    name: 'PatientDoctors',
+    component: () => import('@/views/patient/DoctorDetails.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/doctor/:id/availability',
+    name: 'DoctorAvailabilityView',
+    component: () => import('@/views/patient/DoctorAvailability.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/appointments',
+    name: 'PatientAppointments',
+    component: () => import('@/views/patient/PatientHistory.vue'),
+    meta: { requiresAuth: true, roles: ['patient'] }
+  }
+];
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
-    {
-      path: '/',
-      name: 'home',
-      component: HomeView,
-    },
-
-    {
-      path: '/doctor/dashboard',
-      name: 'DoctorDashboard',
-      component: DoctorDashboard,
-    },
-    {
-      path: '/patient/dashboard',
-      name: 'PatientDashboard',
-      component: PatientDashboard,
-    },
-
-    {
-      path: '/login',
-      name: 'login',
-      // route level code-splitting
-      // this generates a separate chunk (About.[hash].js) for this route
-      // which is lazy-loaded when the route is visited.
-      component: () => import('../views/LoginView.vue'),
-    },
-    {
-      path: '/register',
-      name: 'register',
-      component: () => import('../views/RegisterView.vue'),
-    },
-      {
-    path: "/admin/dashboard",
-    name: "AdminDashboard",
-    component: AdminDashboard,
-  },
-  {
-    path: "/admin/doctors",
-    name: "AdminDoctors",
-    component: AdminDoctors,
-  },
-  {
-    path: "/admin/doctors/add",
-    name: "AddDoctor",
-    component: AddDoctor,
-  },
-  {
-    path: "/admin/patients",
-    name: "AdminPatients",
-    component: AdminPatients,
-  },
-  {
-    path: "/admin/patients/history/:id",
-    name: "PatientHistory",
-    component: PatientHistory,
-  },
-  {
-    path: "/admin/appointments",
-    name: "UpcomingAppointments",
-    component: UpcomingAppointments,
-  },
-
-  {
-  path: "/doctor/dashboard",
-  component: () => import("@/views/doctor/DoctorDashboard.vue")
-},
-{
-  path: "/doctor/history/update/:appointmentId",
-  component: () => import("@/views/doctor/DoctorHistoryUpdate.vue")
-},
-{
-  path: "/doctor/history/:patientId",
-  component: () => import("@/views/doctor/DoctorPatientHistory.vue")
-},
-{
-  path: "/doctor/availability",
-  component: () => import("@/views/doctor/DoctorAvailability.vue")
-},
-{
-  path: "/doctor/patients",
-  component: () => import("@/views/doctor/DoctorPatientHistory.vue")
-},
-{
-  path: "/patient",
-  children: [
-    { path: "dashboard", name: "PatientDashboard", component: () => import("@/views/patient/PatientDashboard.vue") },
-    { path: "department/:deptId", name: "DepartmentDetails", component: () => import("@/views/patient/DepartmentDetails.vue") },
-    { path: "doctor/:doctorId", name: "DoctorDetails", component: () => import("@/views/patient/DoctorDetails.vue") },
-    { path: "doctor/:doctorId/availability", name: "DoctorAvailability", component: () => import("@/views/patient/DoctorAvailability.vue") },
-    { path: "history", name: "PatientHistory", component: () => import("@/views/patient/PatientHistory.vue") },
-  ]
-}
-  ],
-})
-
-router.beforeEach((to, from, next) => {
-  const role = localStorage.getItem("role");
-  const token = localStorage.getItem("access_token");
-
-  // Auto redirect when visiting home
-  if (to.path === "/") {
-    if (!token) return next(); // not logged in → show HomeView
-
-    if (role === "admin") return next("/admin/dashboard");
-    if (role === "doctor") return next("/doctor/dashboard");
-    if (role === "patient") return next("/patient/dashboard");
-
-    return next();
-  }
-
-  // Protect admin routes
-  if (to.path.startsWith("/admin") && role !== "admin") {
-    return next("/");
-  }
-
-  // Protect doctor routes
-  if (to.path.startsWith("/doctor") && role !== "doctor") {
-    return next("/");
-  }
-
-  // Protect patient routes
-  if (to.path.startsWith("/patient") && role !== "patient") {
-    return next("/");
-  }
-
-  next();
+  routes
 });
 
+router.beforeEach((to, from, next) => {
+  const auth = useAuthStore();
 
-export default router
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    next({ name: 'Login' });
+  } else if (to.meta.roles && !to.meta.roles.includes(auth.role)) {
+    next({ name: 'Home' });
+  } else {
+    next();
+  }
+});
+
+export default router;

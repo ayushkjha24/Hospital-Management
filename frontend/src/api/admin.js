@@ -1,16 +1,38 @@
-const BASE = "http://127.0.0.1:5000";
+const BASE_URL = 'http://localhost:5000';
 
-export async function api(url, method = "GET", body = null) {
-  const token = localStorage.getItem("token");
+export async function api(endpoint, method = 'GET', body = null) {
+  const token = localStorage.getItem('token');
 
-  const res = await fetch(BASE + url, {
+  const options = {
     method,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: token ? `Bearer ${token}` : ""
-    },
-    body: body ? JSON.stringify(body) : null
-  });
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` })
+    }
+  };
 
-  return res.json ? res.json() : res;
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')) {
+    if (method !== 'DELETE') {
+      options.body = JSON.stringify(body);
+    }
+  }
+
+  try {
+    const response = await fetch(`${BASE_URL}${endpoint}`, options);
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (err) {
+    throw err;
+  }
 }

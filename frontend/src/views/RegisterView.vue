@@ -1,157 +1,100 @@
 <template>
-  <div class="auth-wrapper d-flex align-items-center justify-content-center">
-    <div class="auth-card card shadow-sm">
-      <div class="card-body p-4">
-        <h2 class="text-center mb-4 fw-bold">Create an Account</h2>
+  <div class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-body p-4">
+            <h2 class="text-center mb-4 fw-bold">Register</h2>
 
-        <form @submit.prevent="registerUser">
-          
-          <!-- Name -->
-          <div class="mb-3">
-            <label class="form-label">Full Name</label>
-            <input
-              type="text"
-              class="form-control form-control-lg"
-              v-model="name"
-              required
-            />
-          </div>
+            <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
 
-          <!-- Email -->
-          <div class="mb-3">
-            <label class="form-label">Email Address</label>
-            <input
-              type="email"
-              class="form-control form-control-lg"
-              @input="checkEmail"
-              v-model="email"
-              required
-            />
-            <p v-if="emailError" class="text-danger mt-1 small">
-              {{ emailError }}
+            <form @submit.prevent="handleRegister">
+              <div class="mb-3">
+                <label class="form-label">Full Name</label>
+                <input v-model="name" type="text" class="form-control" required />
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Email</label>
+                <input v-model="email" type="email" class="form-control" required />
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Phone</label>
+                <input v-model="phone" type="tel" class="form-control" />
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label">Password</label>
+                <input v-model="password" type="password" class="form-control" required />
+              </div>
+
+              <button type="submit" class="btn btn-success w-100" :disabled="loading">
+                {{ loading ? 'Registering...' : 'Register' }}
+              </button>
+            </form>
+
+            <hr />
+
+            <p class="text-center">
+              Already have an account?
+              <RouterLink to="/login" class="text-decoration-none">Login here</RouterLink>
             </p>
           </div>
-
-          <!-- Password -->
-          <div class="mb-3">
-            <label class="form-label">Password</label>
-            <input
-              type="password"
-              class="form-control form-control-lg"
-              v-model="password"
-              required
-              @input="validatePassword"
-            />
-            <p v-if="passwordError" class="text-danger mt-1 small">
-              {{ passwordError }}
-            </p>
-          </div>
-
-          <!-- Confirm Password -->
-          <div class="mb-3">
-            <label class="form-label">Confirm Password</label>
-            <input
-              type="password"
-              class="form-control form-control-lg"
-              v-model="confirmPassword"
-              required
-              @input="matchPassword"
-            />
-            <p v-if="matchingPasswordError" class="text-danger mt-1 small">
-              {{ matchingPasswordError }}
-            </p>
-          </div>
-
-          <button class="btn btn-primary w-100 btn-lg mt-2">
-            Register
-          </button>
-
-          <p class="text-center text-muted mt-3">
-            Already have an account?
-            <RouterLink to="/login" class="fw-semibold">Login</RouterLink>
-          </p>
-
-        </form>
+        </div>
       </div>
     </div>
   </div>
-
-  <RouterView />
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
+const authStore = useAuthStore();
 
-const name = ref('')
-const email = ref('')
-const password = ref('')
-const confirmPassword = ref('')
-const emailError = ref('')
-const passwordError = ref('')
-const matchingPasswordError = ref('')
+const name = ref('');
+const email = ref('');
+const password = ref('');
+const phone = ref('');
+const loading = ref(false);
+const message = ref('');
+const messageClass = ref('alert-success');
 
-const validatePassword = () => {
-  if (password.value.length < 6) {
-    passwordError.value = 'Password must be at least 6 characters long.'
-    return false
-  }
-  passwordError.value = ''
-  return true
-}
+async function handleRegister() {
+  loading.value = true;
+  try {
+    const res = await fetch('http://localhost:5000/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name.value,
+        email: email.value,
+        password: password.value,
+        phone: phone.value
+      })
+    });
 
-const matchPassword = () => {
-  if (password.value != confirmPassword.value) {
-    matchingPasswordError.value = 'Passwords do not match'
-    return false
-  }
-  matchingPasswordError.value = ''
-  return true
-}
+    const data = await res.json();
+    if (!res.ok) {
+      message.value = data.error || data.message || 'Registration failed';
+      messageClass.value = 'alert-danger';
+      return;
+    }
 
-async function checkEmail() {
-  emailError.value = ''
+    message.value = 'Registration successful! Redirecting to login...';
+    messageClass.value = 'alert-success';
 
-  if (!email.value) return
-
-  const response = await fetch("http://127.0.0.1:5000/check_email", {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value })
-  })
-
-  const data = await response.json()
-
-  if (data.exists) {
-    emailError.value = 'Email already exists. Please use a different one.'
-  }
-}
-
-async function registerUser() {
-
-  if (!validatePassword()) return
-
-  if (emailError.value) return
-
-  const response = await fetch("http://127.0.0.1:5000/register", {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: name.value,
-      email: email.value,
-      password: password.value
-    })
-  })
-
-  if (response.status === 201) {
-    alert('Registration successful! Please login.')
-    router.push('/login')
-  } else if (response.status === 409) {
-    emailError.value = 'Email already exists.'
-  } else {
-    alert('Registration failed. Try again later.')
+    setTimeout(() => {
+      router.push('/login');
+    }, 1500);
+  } catch (err) {
+    message.value = err.message;
+    messageClass.value = 'alert-danger';
+  } finally {
+    loading.value = false;
   }
 }
 </script>

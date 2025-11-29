@@ -1,40 +1,87 @@
 <script setup>
-import { ref, onMounted } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { patientAPI } from "@/api/patient";
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { apiPublic } from '@/api/public';
 
-const route = useRoute();
 const router = useRouter();
-const deptId = route.params.deptId;
-const dept = ref({ name: "", description: "", doctors: [] });
+const departments = ref([]);
+const selectedDeptId = ref(null);
+const doctors = ref([]);
+const loading = ref(true);
+const message = ref('');
 
-onMounted(async () => {
-  const res = await patientAPI.departmentDetails(deptId);
-  dept.value = res;
-});
-
-function viewDoctor(doctorId) {
-  router.push({ name: "DoctorDetails", params: { doctorId }});
+async function loadDepartments() {
+  try {
+    const res = await apiPublic('/departments');
+    departments.value = res.departments || [];
+  } catch (err) {
+    message.value = err.message;
+  } finally {
+    loading.value = false;
+  }
 }
 
+async function selectDepartment(deptId) {
+  selectedDeptId.value = deptId;
+  try {
+    const res = await apiPublic(`/doctors?department_id=${deptId}`);
+    doctors.value = res.doctors || [];
+  } catch (err) {
+    message.value = err.message;
+  }
+}
+
+function viewDoctor(doctorId) {
+  router.push(`/patient/doctor/${doctorId}/availability`);
+}
+
+onMounted(loadDepartments);
 </script>
 
 <template>
   <div class="container py-4">
-    <button class="btn btn-link mb-2" @click="$router.back()">← Back</button>
-    <h3>Department of {{ dept.name }}</h3>
-    <p>{{ dept.description }}</p>
+    <h3 class="fw-bold mb-4">Browse Doctors by Department</h3>
 
-    <h5 class="mt-4">Doctors' list</h5>
-    <div class="list-group">
-      <div v-for="doc in dept.doctors" :key="doc.id" class="list-group-item d-flex justify-content-between align-items-center">
-        <div>
-          <div class="fw-bold">{{ doc.name }}</div>
-          <small>{{ doc.specialization }} • {{ doc.experience_years }} yrs</small>
+    <div v-if="message" class="alert alert-danger">{{ message }}</div>
+
+    <div class="row">
+      <div class="col-md-3">
+        <div class="list-group">
+          <button
+            v-for="dep in departments"
+            :key="dep.id"
+            @click="selectDepartment(dep.id)"
+            :class="['list-group-item', 'list-group-item-action', selectedDeptId === dep.id ? 'active' : '']"
+          >
+            {{ dep.name }}
+          </button>
         </div>
-        <div>
-          <button class="btn btn-sm btn-outline-primary me-2" @click="viewDoctor(doc.id)">view details</button>
-          <button class="btn btn-sm btn-outline-success" @click="router.push({ name:'DoctorAvailability', params:{ doctorId: doc.id }})">check availability</button>
+      </div>
+
+      <div class="col-md-9">
+        <div v-if="loading" class="text-center">
+          <div class="spinner-border" role="status"></div>
+        </div>
+
+        <div v-else>
+          <div v-if="doctors.length === 0" class="alert alert-info">
+            Select a department to view doctors
+          </div>
+
+          <div class="row">
+            <div v-for="doc in doctors" :key="doc.id" class="col-md-6 mb-3">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">{{ doc.name }}</h5>
+                  <p class="card-text text-muted">{{ doc.specialization }}</p>
+                  <p class="small"><strong>Experience:</strong> {{ doc.experience_years || 'N/A' }} years</p>
+                  <button @click="viewDoctor(doc.id)" class="btn btn-primary btn-sm w-100">
+                    View Availability & Book
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

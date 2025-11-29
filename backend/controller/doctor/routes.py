@@ -1,9 +1,9 @@
 from flask import request
-from flask_restful import Resource
-from datetime import datetime, timedelta, date
-from controller.models import *
 from controller.security import RoleProtectedResource
 from controller.database import db
+from controller.models import Doctor, Appointment, Patient, Availability, Treatment
+from datetime import datetime, timedelta
+from flask_jwt_extended import get_jwt_identity
 
 
 # -------------------------------------------------
@@ -13,7 +13,26 @@ class DoctorDashboard(RoleProtectedResource):
     required_roles = ["doctor"]
 
     def get(self):
-        return {"message": "Welcome Doctor"}, 200
+        doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
+        if not doctor:
+            return {"error": "Doctor profile not found"}, 404
+
+        upcoming = Appointment.query.filter(
+            Appointment.doctor_id == doctor.id,
+            Appointment.status == "scheduled",
+            Appointment.appointment_time >= datetime.now()
+        ).count()
+
+        patients = Patient.query.filter(
+            Patient.id.in_(
+                db.session.query(Appointment.patient_id).filter_by(doctor_id=doctor.id).distinct()
+            )
+        ).count()
+
+        return {
+            "upcoming_appointments": upcoming,
+            "total_patients": patients
+        }, 200
 
 
 # -------------------------------------------------
@@ -25,22 +44,20 @@ class DoctorUpcomingAppointments(RoleProtectedResource):
     def get(self):
         doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
         if not doctor:
-            return {"message": "Doctor profile not found"}, 404
-
-        now = datetime.now()
+            return {"error": "Doctor profile not found"}, 404
 
         appts = Appointment.query.filter(
             Appointment.doctor_id == doctor.id,
             Appointment.status == "scheduled",
-            Appointment.appointment_time >= now
+            Appointment.appointment_time >= datetime.now()
         ).order_by(Appointment.appointment_time.asc()).all()
 
         result = []
         for a in appts:
             result.append({
                 "id": a.id,
-                "patient": a.patient.user.name,
-                "time": a.appointment_time.strftime("%Y-%m-%d %H:%M"),
+                "patient_name": a.patient.user.name,
+                "appointment_time": a.appointment_time.strftime("%Y-%m-%d %H:%M"),
                 "status": a.status
             })
 
@@ -53,24 +70,20 @@ class DoctorUpcomingAppointments(RoleProtectedResource):
 class UpdateAppointmentStatus(RoleProtectedResource):
     required_roles = ["doctor"]
 
-    def patch(self, appointment_id):
+    def patch(self, appt_id):
+        appt = Appointment.query.get_or_404(appt_id)
         doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
 
-        appt = Appointment.query.filter_by(
-            id=appointment_id,
-            doctor_id=doctor.id
-        ).first()
+        if appt.doctor_id != doctor.id:
+            return {"error": "Unauthorized"}, 403
 
-        if not appt:
-            return {"message": "Appointment not found"}, 404
+        data = request.get_json() or {}
+        status = data.get("status")
 
-        data = request.get_json()
-        new_status = data.get("status")
+        if status not in ["scheduled", "completed", "cancelled"]:
+            return {"error": "Invalid status"}, 400
 
-        if new_status not in ["completed", "cancelled"]:
-            return {"message": "Invalid status"}, 400
-
-        appt.status = new_status
+        appt.status = status
         db.session.commit()
 
         return {"message": "Status updated"}, 200
@@ -84,18 +97,21 @@ class AssignedPatients(RoleProtectedResource):
 
     def get(self):
         doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
+        if not doctor:
+            return {"error": "Doctor profile not found"}, 404
 
-        appts = Appointment.query.filter_by(doctor_id=doctor.id).all()
-        patient_ids = {a.patient_id for a in appts}
-
-        patients = Patient.query.filter(Patient.id.in_(patient_ids)).all()
+        patients = Patient.query.filter(
+            Patient.id.in_(
+                db.session.query(Appointment.patient_id).filter_by(doctor_id=doctor.id).distinct()
+            )
+        ).all()
 
         result = []
         for p in patients:
             result.append({
                 "id": p.id,
                 "name": p.user.name,
-                "email": p.user.email
+                "email": p.user.email,
             })
 
         return result, 200
@@ -197,43 +213,44 @@ class DoctorAvailability(RoleProtectedResource):
 
     def get(self):
         doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
-        today = date.today()
-        next7 = [today + timedelta(days=i) for i in range(7)]
+        if not doctor:
+            return {"error": "Doctor profile not found"}, 404
 
-        avails = Availability.query.filter(
+        today = datetime.now().date()
+        end = today + timedelta(days=6)
+
+        slots = Availability.query.filter(
             Availability.doctor_id == doctor.id,
-            Availability.date.in_(next7)
-        ).order_by(Availability.date.asc()).all()
+            Availability.date >= today,
+            Availability.date <= end
+        ).order_by(Availability.date.asc(), Availability.start_time.asc()).all()
 
-        result = []
-        for a in avails:
-            result.append({
-                "date": a.date.strftime("%Y-%m-%d"),
-                "start_time": a.start_time.strftime("%H:%M"),
-                "end_time": a.end_time.strftime("%H:%M"),
-                "is_available": a.is_available
+        out = []
+        for s in slots:
+            out.append({
+                "id": s.id,
+                "date": s.date.isoformat(),
+                "start_time": s.start_time.strftime("%H:%M"),
+                "end_time": s.end_time.strftime("%H:%M"),
+                "is_available": bool(s.is_available)
             })
 
-        return result, 200
-
-
-# -------------------------------------------------
-# Doctor Availability (POST) - Provide Availability
-# -------------------------------------------------
-class PublishAvailability(RoleProtectedResource):
-    required_roles = ["doctor"]
+        return {"slots": out}, 200
 
     def post(self):
         doctor = Doctor.query.filter_by(user_id=self.current_user.id).first()
-        data = request.get_json()
+        if not doctor:
+            return {"error": "Doctor profile not found"}, 404
 
+        data = request.get_json() or {}
         slots = data.get("slots")
-        if not slots:
-            return {"message": "Slots are required"}, 400
+
+        if not isinstance(slots, list):
+            return {"error": "Slots must be a list"}, 400
 
         try:
             doctor.publish_availability(slots)
         except ValueError as e:
-            return {"message": str(e)}, 400
+            return {"error": str(e)}, 400
 
-        return {"message": "Availability published"}, 201
+        return {"message": "Availability saved"}, 200

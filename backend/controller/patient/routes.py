@@ -1,11 +1,12 @@
-from flask import request, send_file
-from flask_restful import Resource
+from flask import request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from controller.models import *
+from flask_restful import Resource
 from controller.security import RoleProtectedResource
-import csv, io
 from datetime import datetime, timedelta
+from controller.database import db
+from controller.models import User, Patient, Doctor, Department, Appointment, Availability
 
+APPOINTMENT_DURATION_MIN = 30  # minutes
 
 # ----------------------------------------------------
 # Patient Dashboard
@@ -15,307 +16,334 @@ class PatientDashboard(RoleProtectedResource):
 
     def get(self):
         user_id = get_jwt_identity()
+        user = User.query.get(user_id)
         patient = Patient.query.filter_by(user_id=user_id).first()
 
-        departments = Department.query.all()
-        dept_list = [{"id": d.id, "name": d.name} for d in departments]
+        if not patient or not user:
+            return {"error": "Patient profile not found"}, 404
 
-        upcoming = Appointment.query.filter(
+        now = datetime.now()
+
+        # upcoming appointments
+        upcoming_q = Appointment.query.filter(
             Appointment.patient_id == patient.id,
-            Appointment.status == "scheduled",
-            Appointment.appointment_time >= datetime.now(),
-        ).all()
+            Appointment.appointment_time >= now,
+            Appointment.status.in_(["scheduled", "confirmed"])
+        ).order_by(Appointment.appointment_time.asc()).all()
 
-        upcoming_list = [{
-            "id": a.id,
-            "doctor": a.doctor.user.name,
-            "department": a.doctor.department.name if a.doctor.department else None,
-            "date": a.appointment_time.strftime("%Y-%m-%d"),
-            "time": a.appointment_time.strftime("%I:%M %p"),
-        } for a in upcoming]
+        upcoming = []
+        for appt in upcoming_q:
+            upcoming.append({
+                "id": appt.id,
+                "doctor": appt.doctor.user.name if getattr(appt, "doctor", None) and getattr(appt.doctor, "user", None) else "N/A",
+                "department": appt.doctor.department.name if getattr(appt, "doctor", None) and getattr(appt.doctor, "department", None) else "N/A",
+                "date": appt.appointment_time.strftime("%Y-%m-%d"),
+                "time": appt.appointment_time.strftime("%H:%M"),
+                "status": appt.status
+            })
+
+        # departments
+        depts_q = Department.query.order_by(Department.name.asc()).all()
+        depts = []
+        for d in depts_q:
+            depts.append({
+                "id": d.id,
+                "name": d.name,
+                "description": getattr(d, "description", "") or ""
+            })
 
         return {
-            "patient_name": patient.user.name,
-            "departments": dept_list,
-            "upcoming_appointments": upcoming_list
+            "patient_name": user.name,
+            "email": user.email,
+            "departments": depts,
+            "upcoming_appointments": upcoming,
+            "stats": {
+                "upcoming_appointments": len(upcoming_q),
+                "total_departments": len(depts_q)
+            }
         }, 200
 
 
 # ----------------------------------------------------
-# Departments List
+# Departments List (public for patients)
 # ----------------------------------------------------
 class PatientDepartments(RoleProtectedResource):
     required_roles = ["patient"]
 
     def get(self):
-        d = Department.query.all()
-        return [{"id": d.id, "name": d.name, "description": d.description}] , 200
-
-
-# ----------------------------------------------------
-# Department Details + Doctor List
-# ----------------------------------------------------
-class DepartmentDetails(RoleProtectedResource):
-    required_roles = ["patient"]
-
-    def get(self, dept_id):
-        dept = Department.query.get_or_404(dept_id)
-
-        doctors = [{
-            "id": d.id,
-            "name": d.user.name,
-            "specialization": d.specialization,
-            "experience_years": d.experience_years
-        } for d in dept.doctors]
-
-        return {
-            "id": dept.id,
-            "name": dept.name,
-            "description": dept.description,
-            "doctors": doctors
-        }, 200
-
-
-# ----------------------------------------------------
-# Doctor Profile
-# ----------------------------------------------------
-class DoctorDetails(RoleProtectedResource):
-    required_roles = ["patient"]
-
-    def get(self, doctor_id):
-        d = Doctor.query.get_or_404(doctor_id)
-        return {
-            "id": d.id,
-            "name": d.user.name,
-            "specialization": d.specialization,
-            "experience_years": d.experience_years,
-            "department": d.department.name if d.department else None,
-            "approved": d.is_approved
-        }, 200
-
-
-# ----------------------------------------------------
-# Doctor Availability
-# ----------------------------------------------------
-class DoctorAvailabilityPublic(RoleProtectedResource):
-    required_roles = ["patient"]
-
-    def get(self, doctor_id):
-        doctor = Doctor.query.get_or_404(doctor_id)
-        slots = []
-
-        for av in doctor.availabilities:
-            slots.append({
-                "date": av.date.strftime("%Y-%m-%d"),
-                "start": av.start_time.strftime("%H:%M"),
-                "end": av.end_time.strftime("%H:%M")
+        depts_q = Department.query.order_by(Department.name.asc()).all()
+        depts = []
+        for d in depts_q:
+            depts.append({
+                "id": d.id,
+                "name": d.name,
+                "description": getattr(d, "description", "") or ""
             })
-
-        return slots, 200
+        return {"departments": depts}, 200
 
 
 # ----------------------------------------------------
-# Book Appointment
+# Book appointment
 # ----------------------------------------------------
 class BookAppointment(RoleProtectedResource):
     required_roles = ["patient"]
 
     def post(self):
-        data = request.get_json()
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
+
+        data = request.get_json() or {}
         doctor_id = data.get("doctor_id")
         date_str = data.get("date")
-        start_time = data.get("start_time")
+        start_time_str = data.get("start_time")
 
-        if not all([doctor_id, date_str, start_time]):
-            return {"message": "Missing required fields"}, 400
+        if not all([doctor_id, date_str, start_time_str]):
+            return {"error": "Missing required fields"}, 400
 
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
-        doctor = Doctor.query.get_or_404(doctor_id)
+        try:
+            appt_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            start_time = datetime.strptime(start_time_str, "%H:%M").time()
+            appt_dt = datetime.combine(appt_date, start_time)
+        except ValueError:
+            return {"error": "Invalid date/time format. Use YYYY-MM-DD and HH:MM"}, 400
 
-        appt_dt = datetime.strptime(f"{date_str} {start_time}", "%Y-%m-%d %H:%M")
-        duration = 30
-        appt_end = appt_dt + timedelta(minutes=duration)
+        doctor = Doctor.query.get(doctor_id)
+        if not doctor or not doctor.is_approved:
+            return {"error": "Doctor not found or not approved"}, 404
 
-        # Check for overlapping appointments with same doctor
-        overlap = Appointment.query.filter(
-            Appointment.doctor_id == doctor_id,
-            Appointment.status == "scheduled",
-            Appointment.appointment_time < appt_end,
-            Appointment.appointment_time + timedelta(minutes=Appointment.duration_minutes or 30) > appt_dt
-        ).first()
-
-        if overlap:
-            return {"message": "Doctor not available at this time"}, 400
-
-        # Check availability slot
+        # check availability slot
         slot = Availability.query.filter_by(
             doctor_id=doctor_id,
-            date=appt_dt.date(),
+            date=appt_date,
+            start_time=start_time,
             is_available=True
-        ).filter(
-            Availability.start_time <= appt_dt.time(),
-            Availability.end_time >= appt_end.time()
+        ).first()
+        if not slot:
+            return {"error": "Selected slot is not available"}, 400
+
+        # check conflicts using numeric duration
+        duration = APPOINTMENT_DURATION_MIN
+        appt_end = appt_dt + timedelta(minutes=duration)
+
+        conflict = Appointment.query.filter(
+            Appointment.doctor_id == doctor_id,
+            Appointment.status.in_(["scheduled", "confirmed"]),
+            Appointment.appointment_time < appt_end,
+            (Appointment.appointment_time + timedelta(minutes=duration)) > appt_dt
         ).first()
 
-        if not slot:
-            return {"message": "Selected time slot not available"}, 400
+        if conflict:
+            return {"error": "Time slot conflict with existing appointment"}, 409
 
-        appt = Appointment(
-            doctor_id=doctor_id,
+        # create appointment
+        appointment = Appointment(
             patient_id=patient.id,
+            doctor_id=doctor_id,
             appointment_time=appt_dt,
-            duration_minutes=duration,
             status="scheduled"
         )
+        # add optional notes if model supports it and provided
+        if hasattr(Appointment, "notes") and "notes" in data:
+            appointment.notes = data.get("notes", "")
 
-        db.session.add(appt)
-        db.session.commit()
+        try:
+            db.session.add(appointment)
+            slot.is_available = False
+            db.session.add(slot)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return {"error": "Could not create appointment: " + str(e)}, 500
 
-        return {"message": "Appointment booked successfully"}, 201
-
-
-# ----------------------------------------------------
-# Cancel Appointment
-# ----------------------------------------------------
-class CancelAppointment(RoleProtectedResource):
-    required_roles = ["patient"]
-
-    def delete(self, appt_id):
-        appt = Appointment.query.get_or_404(appt_id)
-
-        if appt.status != "scheduled":
-            return {"message": "Only scheduled appointments can be cancelled"}, 400
-
-        appt.status = "cancelled"
-        db.session.commit()
-
-        return {"message": "Appointment cancelled"}, 200
+        return {"message": "Appointment booked successfully", "appointment_id": appointment.id}, 201
 
 
 # ----------------------------------------------------
-# Patient History
+# Upcoming appointments (patient)
 # ----------------------------------------------------
-class PatientMedicalHistory(RoleProtectedResource):
+class PatientAppointments(RoleProtectedResource):
     required_roles = ["patient"]
 
     def get(self):
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
-        history = []
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
 
-        for a in patient.appointments:
-            for t in a.treatments:
-                history.append({
-                    "visit_date": a.appointment_time.strftime("%Y-%m-%d"),
-                    "doctor": a.doctor.user.name,
-                    "department": a.doctor.department.name if a.doctor.department else None,
-                    "visit_type": "In-person",
-                    "tests_done": "ECG",
-                    "diagnosis": t.diagnosis,
-                    "prescription": t.prescription,
-                    "notes": t.notes
-                })
+        now = datetime.now()
+        appts = Appointment.query.filter(
+            Appointment.patient_id == patient.id,
+            Appointment.appointment_time >= now,
+            Appointment.status.in_(["scheduled", "confirmed"])
+        ).order_by(Appointment.appointment_time.asc()).all()
 
-        return history, 200
+        result = []
+        for appt in appts:
+            result.append({
+                "id": appt.id,
+                "doctor": appt.doctor.user.name if getattr(appt, "doctor", None) and getattr(appt.doctor, "user", None) else "N/A",
+                "specialization": appt.doctor.specialization if getattr(appt, "doctor", None) else "N/A",
+                "appointment_time": appt.appointment_time.strftime("%Y-%m-%d %H:%M"),
+                "status": appt.status,
+                "notes": getattr(appt, "notes", None)
+            })
 
-
-# ----------------------------------------------------
-# Export CSV
-# ----------------------------------------------------
-class ExportPatientHistoryCSV(RoleProtectedResource):
-    required_roles = ["patient"]
-
-    def get(self):
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
-        output = io.StringIO()
-        writer = csv.writer(output)
-
-        writer.writerow(["Date", "Doctor", "Department", "Diagnosis", "Prescription", "Notes"])
-
-        for a in patient.appointments:
-            for t in a.treatments:
-                writer.writerow([
-                    a.appointment_time.strftime("%Y-%m-%d"),
-                    a.doctor.user.name,
-                    a.doctor.department.name if a.doctor.department else None,
-                    t.diagnosis,
-                    t.prescription,
-                    t.notes
-                ])
-
-        output.seek(0)
-        return send_file(
-            io.BytesIO(output.read().encode()),
-            mimetype="text/csv",
-            as_attachment=True,
-            download_name="patient_history.csv"
-        )
+        return {"appointments": result}, 200
 
 
 # ----------------------------------------------------
-# Patient Profile
+# Profile get/update
 # ----------------------------------------------------
 class PatientProfile(RoleProtectedResource):
     required_roles = ["patient"]
 
     def get(self):
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient or not user:
+            return {"error": "Patient profile not found"}, 404
+
         return {
             "id": patient.id,
-            "name": patient.user.name,
-            "email": patient.user.email,
-            "phone": patient.user.phone,
-            "medical_history": patient.medical_history
+            "name": user.name,
+            "email": user.email,
+            "phone": getattr(user, "phone", ""),
+            "medical_history": getattr(patient, "medical_history", "") or ""
         }, 200
 
     def put(self):
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
-        data = request.get_json()
-        
-        patient.user.name = data.get("name", patient.user.name)
-        patient.user.phone = data.get("phone", patient.user.phone)
-        patient.medical_history = data.get("medical_history", patient.medical_history)
-        
+        user_id = get_jwt_identity()
+        user = User.query.get(user_id)
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient or not user:
+            return {"error": "Patient profile not found"}, 404
+
+        data = request.get_json() or {}
+        if "name" in data:
+            user.name = data["name"]
+        if "phone" in data:
+            user.phone = data["phone"]
+        if "medical_history" in data:
+            patient.medical_history = data["medical_history"]
         db.session.commit()
         return {"message": "Profile updated"}, 200
 
 
 # ----------------------------------------------------
-# Reschedule Appointment
+# Reschedule appointment
 # ----------------------------------------------------
 class RescheduleAppointment(RoleProtectedResource):
     required_roles = ["patient"]
 
     def post(self, appt_id):
-        data = request.get_json()
-        new_date = data.get("date")
-        new_time = data.get("start_time")
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
 
-        appt = Appointment.query.get_or_404(appt_id)
-        patient = Patient.query.filter_by(user_id=get_jwt_identity()).first()
+        appointment = Appointment.query.filter_by(id=appt_id, patient_id=patient.id).first()
+        if not appointment:
+            return {"error": "Appointment not found"}, 404
 
-        if appt.patient_id != patient.id:
-            return {"message": "Unauthorized"}, 403
+        data = request.get_json() or {}
+        date_str = data.get("date")
+        start_time_str = data.get("start_time")
+        if not all([date_str, start_time_str]):
+            return {"error": "Missing date or time"}, 400
 
-        if appt.status != "scheduled":
-            return {"message": "Only scheduled appointments can be rescheduled"}, 400
+        try:
+            new_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            new_time = datetime.strptime(start_time_str, "%H:%M").time()
+            new_dt = datetime.combine(new_date, new_time)
+        except ValueError:
+            return {"error": "Invalid date/time format"}, 400
 
-        new_dt = datetime.strptime(f"{new_date} {new_time}", "%Y-%m-%d %H:%M")
-        new_end = new_dt + timedelta(minutes=30)
-
-        # Validate new slot
+        # check new slot availability
         slot = Availability.query.filter_by(
-            doctor_id=appt.doctor_id,
-            date=new_dt.date(),
+            doctor_id=appointment.doctor_id,
+            date=new_date,
+            start_time=new_time,
             is_available=True
-        ).filter(
-            Availability.start_time <= new_dt.time(),
-            Availability.end_time >= new_end.time()
         ).first()
-
         if not slot:
-            return {"message": "Selected slot not available"}, 400
+            return {"error": "Selected slot not available"}, 400
 
-        appt.appointment_time = new_dt
+        # free old slot if exists
+        old_slot = Availability.query.filter_by(
+            doctor_id=appointment.doctor_id,
+            date=appointment.appointment_time.date(),
+            start_time=appointment.appointment_time.time()
+        ).first()
+        if old_slot:
+            old_slot.is_available = True
+
+        # update appointment and mark new slot unavailable
+        appointment.appointment_time = new_dt
+        slot.is_available = False
+
         db.session.commit()
-
         return {"message": "Appointment rescheduled"}, 200
+
+
+# ----------------------------------------------------
+# Cancel appointment
+# ----------------------------------------------------
+class CancelAppointment(RoleProtectedResource):
+    required_roles = ["patient"]
+
+    def post(self, appt_id):
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
+
+        appointment = Appointment.query.filter_by(id=appt_id, patient_id=patient.id).first()
+        if not appointment:
+            return {"error": "Appointment not found"}, 404
+
+        # release slot if exists
+        slot = Availability.query.filter_by(
+            doctor_id=appointment.doctor_id,
+            date=appointment.appointment_time.date(),
+            start_time=appointment.appointment_time.time()
+        ).first()
+        if slot:
+            slot.is_available = True
+
+        appointment.status = "cancelled"
+        db.session.commit()
+        return {"message": "Appointment cancelled"}, 200
+
+
+# ----------------------------------------------------
+# Past appointments
+# ----------------------------------------------------
+class PatientPastAppointments(RoleProtectedResource):
+    required_roles = ["patient"]
+
+    def get(self):
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
+
+        now = datetime.now()
+        appts = Appointment.query.filter(
+            Appointment.patient_id == patient.id,
+            Appointment.appointment_time < now
+        ).order_by(Appointment.appointment_time.desc()).all()
+
+        result = []
+        for appt in appts:
+            result.append({
+                "id": appt.id,
+                "doctor": appt.doctor.user.name if getattr(appt, "doctor", None) and getattr(appt.doctor, "user", None) else "N/A",
+                "specialization": appt.doctor.specialization if getattr(appt, "doctor", None) else "N/A",
+                "appointment_time": appt.appointment_time.strftime("%Y-%m-%d %H:%M"),
+                "status": appt.status,
+                "notes": getattr(appt, "notes", None)
+            })
+        return {"appointments": result}, 200

@@ -2,23 +2,91 @@ import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 
 export const useAuthStore = defineStore("auth", () => {
-  const role = ref(localStorage.getItem("role"))
-  const username = ref(localStorage.getItem("username"))
+  // Initialize from localStorage
+  const token = ref(localStorage.getItem("token") || "")
+  const role = ref(localStorage.getItem("role") || "")
+  const username = ref(localStorage.getItem("username") || "")
+  const email = ref(localStorage.getItem("email") || "")
 
-  function setAuth(token, userRole, userName) {
-    localStorage.setItem("access_token", token)
-    localStorage.setItem("role", userRole)
-    localStorage.setItem("username", userName)
+  const isAuthenticated = computed(() => !!token.value)
 
-    role.value = userRole
-    username.value = userName
+  async function login(emailInput, password) {
+    try {
+      const res = await fetch("http://localhost:5000/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailInput, password }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Login failed")
+      }
+
+      const data = await res.json()
+
+      // Set reactive values
+      token.value = data.access_token
+      role.value = data.role
+      username.value = data.name
+      email.value = data.email
+
+      // Persist to localStorage
+      localStorage.setItem("token", data.access_token)
+      localStorage.setItem("role", data.role)
+      localStorage.setItem("username", data.name)
+      localStorage.setItem("email", data.email)
+
+      return true
+    } catch (err) {
+      console.error("Login error:", err)
+      throw err
+    }
+  }
+
+  async function register(name, emailInput, password) {
+    try {
+      const res = await fetch("http://localhost:5000/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email: emailInput, password }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Registration failed")
+      }
+
+      return true
+    } catch (err) {
+      console.error("Register error:", err)
+      throw err
+    }
   }
 
   function logout() {
-    localStorage.clear()
-    role.value = null
-    username.value = null
+    token.value = ""
+    role.value = ""
+    username.value = ""
+    email.value = ""
+
+    localStorage.removeItem("token")
+    localStorage.removeItem("role")
+    localStorage.removeItem("username")
+    localStorage.removeItem("email")
   }
 
-  return { role, username, setAuth, logout }
+  return {
+    token,
+    role,
+    username,
+    email,
+    isAuthenticated,
+    login,
+    register,
+    logout,
+  }
+},
+{
+  persist: true // Enable persistence if you have pinia-persist plugin
 })

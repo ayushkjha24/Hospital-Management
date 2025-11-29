@@ -1,20 +1,18 @@
 from flask import request
-from flask_restful import Resource
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from werkzeug.security import generate_password_hash
-from controller.models import *
 from controller.security import RoleProtectedResource
+from controller.database import db
+from controller.models import User, Doctor, Patient, Department, Appointment
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
-# ------------------------
-# Admin Dashboard Welcome
-# ------------------------
 class AdminDashboard(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def get(self):
         total_doctors = Doctor.query.count()
         total_patients = Patient.query.count()
-        upcoming_appts = Appointment.query.filter(
+        total_appointments = Appointment.query.count()
+        upcoming = Appointment.query.filter(
             Appointment.appointment_time >= datetime.now(),
             Appointment.status == "scheduled"
         ).count()
@@ -22,236 +20,188 @@ class AdminDashboard(RoleProtectedResource):
         return {
             "total_doctors": total_doctors,
             "total_patients": total_patients,
-            "total_appointments": upcoming_appts
+            "total_appointments": total_appointments,
+            "upcoming_appointments": upcoming
         }, 200
 
-
-# ------------------------
-# Get All Doctors
-# ------------------------
-class GetDoctors(RoleProtectedResource):
+class DoctorListResource(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def get(self):
-        doctors = Doctor.query.all()
-        result = []
+        doctors = Doctor.query.join(User).filter(User.is_active == True).all()
+        out = []
         for d in doctors:
-            result.append({
+            out.append({
                 "id": d.id,
                 "name": d.user.name,
                 "email": d.user.email,
                 "specialization": d.specialization,
                 "experience_years": d.experience_years,
                 "department": d.department.name if d.department else None,
-                "is_approved": d.is_approved
+                "is_approved": bool(d.is_approved)
             })
-        return result, 200
+        return {"doctors": out}, 200
 
-
-# ------------------------
-# Add Doctor
-# ------------------------
-class AddDoctor(RoleProtectedResource):
+class DoctorResource(RoleProtectedResource):
     required_roles = ["admin"]
-
-    def post(self):
-        data = request.get_json()
-        name = data.get("name")
-        email = data.get("email")
-        password = data.get("password")
-        specialization = data.get("specialization")
-        experience = data.get("experience_years", 0)
-        department_id = data.get("department_id")
-
-        if not all([name, email, password, specialization]):
-            return {"message": "Missing required fields"}, 400
-
-        if User.query.filter_by(email=email).first():
-            return {"message": "Email already exists"}, 409
-
-        hashed = generate_password_hash(password)
-        user = User(name=name, email=email, password=hashed, role="doctor")
-
-        db.session.add(user)
-        db.session.commit()
-
-        doctor = Doctor(
-            user_id=user.id,
-            specialization=specialization,
-            experience_years=experience,
-            department_id=department_id
-        )
-        db.session.add(doctor)
-        db.session.commit()
-
-        return {"message": "Doctor added successfully"}, 201
-
-
-# ------------------------
-# Edit Doctor
-# ------------------------
-class EditDoctor(RoleProtectedResource):
-    required_roles = ["admin"]
-
+    
+    def get(self, doctor_id):
+        d = Doctor.query.get_or_404(doctor_id)
+        return {
+            "id": d.id,
+            "name": d.user.name,
+            "email": d.user.email,
+            "specialization": d.specialization,
+            "experience_years": d.experience_years,
+            "department_id": d.department_id,
+            "is_approved": bool(d.is_approved),
+            "is_active": bool(d.user.is_active)
+        }, 200
+    
     def put(self, doctor_id):
-        doctor = Doctor.query.get_or_404(doctor_id)
-        data = request.get_json()
-
-        doctor.user.name = data.get("name", doctor.user.name)
-        doctor.specialization = data.get("specialization", doctor.specialization)
-        doctor.experience_years = data.get("experience_years", doctor.experience_years)
-        doctor.department_id = data.get("department_id", doctor.department_id)
-
+        d = Doctor.query.get_or_404(doctor_id)
+        data = request.get_json() or {}
+        
+        if "name" in data:
+            d.user.name = data["name"]
+        if "email" in data:
+            d.user.email = data["email"]
+        if "specialization" in data:
+            d.specialization = data["specialization"]
+        if "experience_years" in data:
+            d.experience_years = data["experience_years"]
+        if "department_id" in data:
+            d.department_id = data["department_id"]
+        if "is_approved" in data:
+            d.is_approved = bool(data["is_approved"])
+        
         db.session.commit()
         return {"message": "Doctor updated"}, 200
-
-
-# ------------------------
-# Delete Doctor
-# ------------------------
-class DeleteDoctor(RoleProtectedResource):
-    required_roles = ["admin"]
-
+    
     def delete(self, doctor_id):
-        doctor = Doctor.query.get_or_404(doctor_id)
-
-        db.session.delete(doctor)
+        d = Doctor.query.get_or_404(doctor_id)
+        d.user.is_active = False
         db.session.commit()
-        return {"message": "Doctor deleted"}, 200
-
-
-# ------------------------
-# Blacklist Doctor
-# ------------------------
-class BlacklistDoctor(RoleProtectedResource):
+        return {"message": "Doctor deactivated"}, 200
+    
+class AddDoctor(RoleProtectedResource):
     required_roles = ["admin"]
-
-    def post(self, doctor_id):
-        doctor = Doctor.query.get_or_404(doctor_id)
-        user = doctor.user
-
-        user.role = "blacklisted"
+    def post(self):
+        # Create a new doctor
+        data = request.get_json() or {}
+        name = data.get("name")
+        email = data.get("email")
+        password = data.get("password")  # <-- Ensure password is captured
+        specialization = data.get("specialization")
+        experience_years = data.get("experience_years")
+        department_id = data.get("department_id")
+        
+        if not all([name, email, password, specialization, experience_years]):
+            return {"message": "Missing required fields"}, 400
+        
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return {"message": "Email already registered"}, 400
+        
+        hashed_password = generate_password_hash(password)
+        new_user = User(
+            name=name,
+            email=email,
+            password=hashed_password,
+            role="doctor",
+            is_active=True
+        )
+        db.session.add(new_user)
         db.session.commit()
+        
+        new_doctor = Doctor(
+            user_id=new_user.id,
+            specialization=specialization,
+            experience_years=experience_years,
+            department_id=department_id,
+            is_approved=False
+        )
+        db.session.add(new_doctor)
+        db.session.commit()
+        
+        return {"message": "Doctor created", "doctor_id": new_doctor.id}, 201
 
+
+class DoctorBlacklistResource(RoleProtectedResource):
+    required_roles = ["admin"]
+    
+    def post(self, doctor_id):
+        d = Doctor.query.get_or_404(doctor_id)
+        d.user.is_active = False
+        db.session.commit()
         return {"message": "Doctor blacklisted"}, 200
 
-
-# ------------------------------------------------------
-# -------- PATIENT CONTROLS ----------------------------
-# ------------------------------------------------------
-
-class GetPatients(RoleProtectedResource):
+class PatientListResource(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def get(self):
-        patients = Patient.query.all()
-        result = []
-
+        patients = Patient.query.join(User).filter(User.is_active == True).all()
+        out = []
         for p in patients:
-            result.append({
+            out.append({
                 "id": p.id,
                 "name": p.user.name,
                 "email": p.user.email,
-                "history_count": len(p.appointments)
+                "appointments_count": len(p.appointments)
             })
-        return result, 200
+        return {"patients": out}, 200
 
-
-class EditPatient(RoleProtectedResource):
+class PatientResource(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
+    def get(self, patient_id):
+        p = Patient.query.get_or_404(patient_id)
+        return {
+            "id": p.id,
+            "name": p.user.name,
+            "email": p.user.email,
+            "medical_history": p.medical_history,
+            "is_active": bool(p.user.is_active)
+        }, 200
+    
     def put(self, patient_id):
-        patient = Patient.query.get_or_404(patient_id)
-        data = request.get_json()
-
-        patient.user.name = data.get("name", patient.user.name)
+        p = Patient.query.get_or_404(patient_id)
+        data = request.get_json() or {}
+        
+        if "name" in data:
+            p.user.name = data["name"]
+        if "email" in data:
+            p.user.email = data["email"]
+        if "phone" in data:
+            p.user.phone = data["phone"]
+        if "medical_history" in data:
+            p.medical_history = data["medical_history"]
+        
         db.session.commit()
-
         return {"message": "Patient updated"}, 200
-
-
-class DeletePatient(RoleProtectedResource):
-    required_roles = ["admin"]
-
+    
     def delete(self, patient_id):
-        patient = Patient.query.get_or_404(patient_id)
-        db.session.delete(patient)
+        p = Patient.query.get_or_404(patient_id)
+        p.user.is_active = False
         db.session.commit()
-        return {"message": "Patient deleted"}, 200
+        return {"message": "Patient deactivated"}, 200
 
-
-class BlacklistPatient(RoleProtectedResource):
+class PatientBlacklistResource(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def post(self, patient_id):
-        patient = Patient.query.get_or_404(patient_id)
-        user = patient.user
-        user.role = "blacklisted"
+        p = Patient.query.get_or_404(patient_id)
+        p.user.is_active = False
         db.session.commit()
         return {"message": "Patient blacklisted"}, 200
 
-
-# ------------------------
-# Upcoming Appointments
-# ------------------------
-class UpcomingAppointments(RoleProtectedResource):
-    required_roles = ["admin"]
-
-    def get(self):
-        today = datetime.now()
-        appts = Appointment.query.filter(
-            Appointment.appointment_time >= today,
-            Appointment.status == "scheduled"
-        ).all()
-
-        result = []
-        for a in appts:
-            result.append({
-                "id": a.id,
-                "patient": a.patient.user.name,
-                "doctor": a.doctor.user.name,
-                "department": a.doctor.department.name if a.doctor.department else None,
-                "time": a.appointment_time.strftime("%Y-%m-%d %H:%M")
-            })
-        return result, 200
-
-
-# ------------------------
-# Patient History (Treatment Table)
-# ------------------------
-class PatientHistory(RoleProtectedResource):
-    required_roles = ["admin"]
-
-    def get(self, patient_id):
-        patient = Patient.query.get_or_404(patient_id)
-        appts = patient.appointments
-
-        history = []
-        for a in appts:
-            history.append({
-                "visit_date": a.appointment_time.strftime("%Y-%m-%d"),
-                "type": "In-person",
-                "tests_done": "ECG",
-                "diagnosis": a.treatments[0].diagnosis if a.treatments else None,
-                "prescription": a.treatments[0].prescription if a.treatments else None,
-                "medicines": a.treatments[0].notes if a.treatments else None,
-            })
-
-        return {
-            "patient": patient.user.name,
-            "doctor": history[0]["doctor"] if history else None,
-            "history": history
-        }, 200
-
-
 class SearchDoctors(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def get(self):
-        query = request.args.get("q", "").lower()
+        q = request.args.get("q", "").lower()
         doctors = Doctor.query.join(User).filter(
-            (User.name.ilike(f"%{query}%")) | 
-            (Doctor.specialization.ilike(f"%{query}%"))
+            (User.name.ilike(f"%{q}%")) | (Doctor.specialization.ilike(f"%{q}%"))
         ).all()
         
         result = []
@@ -259,19 +209,17 @@ class SearchDoctors(RoleProtectedResource):
             result.append({
                 "id": d.id,
                 "name": d.user.name,
-                "specialization": d.specialization,
-                "department": d.department.name if d.department else None
+                "specialization": d.specialization
             })
         return result, 200
 
 class SearchPatients(RoleProtectedResource):
     required_roles = ["admin"]
-
+    
     def get(self):
-        query = request.args.get("q", "").lower()
+        q = request.args.get("q", "").lower()
         patients = Patient.query.join(User).filter(
-            (User.name.ilike(f"%{query}%")) | 
-            (User.email.ilike(f"%{query}%"))
+            (User.name.ilike(f"%{q}%")) | (User.email.ilike(f"%{q}%"))
         ).all()
         
         result = []
@@ -279,42 +227,33 @@ class SearchPatients(RoleProtectedResource):
             result.append({
                 "id": p.id,
                 "name": p.user.name,
-                "email": p.user.email,
-                "appointments_count": len(p.appointments)
+                "email": p.user.email
             })
         return result, 200
-
-class AddDepartment(RoleProtectedResource):
+class UpcomingAppointments(RoleProtectedResource):
     required_roles = ["admin"]
-
-    def post(self):
-        data = request.get_json()
-        name = data.get("name")
-        description = data.get("description", "")
-
-        if not name:
-            return {"message": "Department name is required"}, 400
-
-        if Department.query.filter_by(name=name).first():
-            return {"message": "Department already exists"}, 409
-        print(name, description)
-        department = Department(name=name, description=description)
-        db.session.add(department)
-        db.session.commit()
-
-        return {"message": "Department added successfully"}, 201
-
-class GetDepartments(RoleProtectedResource):
-    required_roles = ["admin"]
-
-    def get(self):
-        departments = Department.query.all()
-        result = []
-        for d in departments:
-            result.append({
-                "id": d.id,
-                "name": d.name,
-                "description": d.description
-            })
-        return result, 200
     
+    def get(self):
+        now = datetime.now()
+        appointments = Appointment.query.filter(
+            Appointment.appointment_time >= now,
+            Appointment.status.in_(["scheduled", "confirmed"])
+        ).order_by(Appointment.appointment_time.asc()).all()
+        
+        result = []
+        for appt in appointments:
+            patient_name = appt.patient.user.name if appt.patient and appt.patient.user else "N/A"
+            doctor_name = appt.doctor.user.name if appt.doctor and appt.doctor.user else "N/A"
+            department = appt.doctor.department.name if appt.doctor and appt.doctor.department else "N/A"
+            
+            result.append({
+                "id": appt.id,
+                "patient": patient_name,
+                "doctor": doctor_name,
+                "department": department,
+                "date": appt.appointment_time.strftime("%Y-%m-%d"),
+                "time": appt.appointment_time.strftime("%H:%M"),
+                "status": appt.status
+            })
+        
+        return {"appointments": result}, 200

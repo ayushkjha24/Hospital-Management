@@ -1,126 +1,101 @@
 <script setup>
-import { ref, onMounted } from "vue";
-import { api } from "@/api/admin";
+import { ref, onMounted } from 'vue';
+import { api } from '@/api/admin';
+import { useRouter } from 'vue-router';
 
-const doctors = ref([]);
-const patients = ref([]);
-const appointments = ref([]);
-
-onMounted(async () => {
-  doctors.value = await api("/admin/doctors");
-  patients.value = await api("/admin/patients");
-  appointments.value = await api("/admin/appointments/upcoming");
+const router = useRouter();
+const stats = ref({
+  total_doctors: 0,
+  total_patients: 0,
+  total_appointments: 0,
+  upcoming_appointments: 0
 });
+
+const loading = ref(true);
+const message = ref('');
+const messageClass = ref('alert-success');
+
+async function loadStats() {
+  try {
+    const res = await api('/admin/dashboard');
+    stats.value = res;
+  } catch (err) {
+    showMessage(err.message, true);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function showMessage(msg, isError = false) {
+  message.value = msg;
+  messageClass.value = isError ? 'alert-danger' : 'alert-success';
+  setTimeout(() => (message.value = ''), 4000);
+}
+
+onMounted(loadStats);
 </script>
 
 <template>
   <div class="container py-4">
+    <h2 class="fw-bold mb-4">Admin Dashboard</h2>
 
-    <h2 class="fw-bold mb-3">Welcome Admin</h2>
+    <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
 
-    <!-- Search Bar -->
-    <div class="d-flex mb-4">
-      <input class="form-control me-2" placeholder="doctor, patient, department..." />
-      <button class="btn btn-primary">search</button>
-      <RouterLink to="/admin/doctors/add" class="btn btn-success ms-3">create</RouterLink>
+    <div v-if="loading" class="text-center">
+      <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
     </div>
 
-    <!-- Registered Doctors -->
-    <h4>Registered Doctors</h4>
-    <table class="table table-bordered">
-      <tbody>
-        <tr v-for="d in doctors" :key="d.id">
-          <td>{{ d.name }}</td>
-          <td class="text-end">
-            <RouterLink
-              :to="`/admin/doctors/edit/${d.id}`"
-              class="btn btn-warning btn-sm me-2"
-            >
-              edit
-            </RouterLink>
+    <div v-else>
+      <!-- Statistics Cards -->
+      <div class="row mb-4">
+        <div class="col-md-3">
+          <div class="card bg-primary text-white">
+            <div class="card-body">
+              <h6 class="card-title">Total Doctors</h6>
+              <h3 class="card-text">{{ stats.total_doctors }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-success text-white">
+            <div class="card-body">
+              <h6 class="card-title">Total Patients</h6>
+              <h3 class="card-text">{{ stats.total_patients }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-info text-white">
+            <div class="card-body">
+              <h6 class="card-title">Total Appointments</h6>
+              <h3 class="card-text">{{ stats.total_appointments }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-warning text-white">
+            <div class="card-body">
+              <h6 class="card-title">Upcoming</h6>
+              <h3 class="card-text">{{ stats.upcoming_appointments }}</h3>
+            </div>
+          </div>
+        </div>
+      </div>
 
-            <RouterLink
-              :to="`/admin/delete-doctor/${d.id}`"
-              class="btn btn-danger btn-sm me-2"
-            >
-              delete
-            </RouterLink>
-
-            <RouterLink
-              :to="`/admin/blacklist-doctor/${d.id}`"
-              class="btn btn-dark btn-sm"
-            >
-              blacklist
-            </RouterLink>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- Registered Patients -->
-    <h4>Registered Patients</h4>
-    <table class="table table-bordered">
-      <tbody>
-        <tr v-for="p in patients" :key="p.id">
-          <td>{{ p.name }}</td>
-          <td class="text-end">
-
-            <RouterLink
-              :to="`/admin/edit-patient/${p.id}`"
-              class="btn btn-warning btn-sm me-2"
-            >
-              edit
-            </RouterLink>
-
-            <RouterLink
-              :to="`/admin/delete-patient/${p.id}`"
-              class="btn btn-danger btn-sm me-2"
-            >
-              delete
-            </RouterLink>
-
-            <RouterLink
-              :to="`/admin/blacklist-patient/${p.id}`"
-              class="btn btn-dark btn-sm"
-            >
-              blacklist
-            </RouterLink>
-
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- Upcoming Appointments -->
-    <h4>Upcoming Appointments</h4>
-    <table class="table table-bordered">
-      <thead>
-        <tr>
-          <th>Sr No</th>
-          <th>Patient Name</th>
-          <th>Doctor Name</th>
-          <th>Department</th>
-          <th>Patient History</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(a, i) in appointments" :key="a.id">
-          <td>{{ i + 1 }}</td>
-          <td>{{ a.patient }}</td>
-          <td>{{ a.doctor }}</td>
-          <td>{{ a.department }}</td>
-          <td>
-            <!-- Must pass PATIENT ID, not appointment ID -->
-            <RouterLink
-              :to="`/admin/patient-history/${a.patient_id}`"
-              class="btn btn-primary btn-sm"
-            >
-              view
-            </RouterLink>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
+      <!-- Action Buttons -->
+      <div class="d-flex gap-2 mb-4">
+        <RouterLink to="/admin/doctors" class="btn btn-primary">
+          Manage Doctors
+        </RouterLink>
+        <RouterLink to="/admin/patients" class="btn btn-success">
+          Manage Patients
+        </RouterLink>
+        <RouterLink to="/admin/appointments" class="btn btn-info">
+          View Appointments
+        </RouterLink>
+      </div>
+    </div>
   </div>
 </template>

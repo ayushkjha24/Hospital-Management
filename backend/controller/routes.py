@@ -1,61 +1,92 @@
-from controller.admin.routes import *
-from controller.doctor.routes import *
-from controller.patient.routes import *
+from flask import request
+from flask_restful import Resource
+from datetime import date, timedelta
+from controller.models import Department, Doctor, Availability, User
+from controller.database import db
+from sqlalchemy import or_
 
+def serialize_department(dep):
+    return {
+        "id": dep.id,
+        "name": dep.name,
+        "description": getattr(dep, "description", None),
+        "doctors_registered": getattr(dep, "doctors_registered", 0)
+    }
 
-def initialize_routes(api):
-    # -------------------------
-    # ADMIN ROUTES
-    # -------------------------
-    api.add_resource(AdminDashboard, "/admin/dashboard")
-    api.add_resource(AddDoctor, "/admin/add-doctor")
-    api.add_resource(GetDoctors, "/admin/doctors")
-    api.add_resource(DeleteDoctor, "/admin/delete-doctor/<int:doctor_id>")
-    api.add_resource(EditDoctor, "/admin/edit-doctor/<int:doctor_id>")
-    api.add_resource(BlacklistDoctor, "/admin/blacklist-doctor/<int:doctor_id>")
+def serialize_doctor(d):
+    user = d.user
+    return {
+        "id": d.id,
+        "name": user.name if user else None,
+        "email": user.email if user else None,
+        "specialization": d.specialization,
+        "experience_years": d.experience_years,
+        "department": d.department.name if d.department else None,
+        "department_id": d.department_id,
+        "is_approved": bool(d.is_approved)
+    }
 
-    api.add_resource(GetPatients, "/admin/patients")
-    api.add_resource(EditPatient, "/admin/edit-patient/<int:patient_id>")
-    api.add_resource(DeletePatient, "/admin/delete-patient/<int:patient_id>")
-    api.add_resource(BlacklistPatient, "/admin/blacklist-patient/<int:patient_id>")
+def serialize_availability_slot(slot):
+    return {
+        "id": slot.id,
+        "date": slot.date.isoformat(),
+        "start_time": slot.start_time.strftime("%H:%M"),
+        "end_time": slot.end_time.strftime("%H:%M"),
+        "is_available": bool(slot.is_available)
+    }
 
-    api.add_resource(UpcomingAppointments, "/admin/appointments/upcoming")
-    api.add_resource(PatientHistory, "/admin/patient-history/<int:patient_id>")
+class DepartmentsList(Resource):
+    def get(self):
+        deps = Department.query.order_by(Department.name.asc()).all()
+        return {"departments": [serialize_department(d) for d in deps]}, 200
 
-    api.add_resource(SearchDoctors, "/admin/search/doctors")
-    api.add_resource(SearchPatients, "/admin/search/patients")
-    api.add_resource(AddDepartment, "/admin/add-department")
-    api.add_resource(GetDepartments, "/admin/departments")
+class DepartmentResource(Resource):
+    def get(self, department_id):
+        d = Department.query.get_or_404(department_id)
+        return serialize_department(d), 200
 
-    # -------------------------
-    # DOCTOR ROUTES
-    # -------------------------
-    api.add_resource(DoctorDashboard, "/doctor/dashboard")
+class DoctorsList(Resource):
+    def get(self):
+        q = (request.args.get("q") or "").strip()
+        department_id = request.args.get("department_id")
+        approved = request.args.get("approved")
 
-    api.add_resource(DoctorUpcomingAppointments, "/doctor/appointments/upcoming")
-    api.add_resource(UpdateAppointmentStatus, "/doctor/appointment/<int:appointment_id>/status")
+        query = Doctor.query.join(User).filter(User.is_active == True)
 
-    api.add_resource(AssignedPatients, "/doctor/assigned-patients")
+        if q:
+            like = f"%{q}%"
+            query = query.filter(
+                or_(
+                    User.name.ilike(like),
+                    Doctor.specialization.ilike(like)
+                )
+            )
 
-    api.add_resource(DoctorPatientHistory, "/doctor/patient/<int:patient_id>/history")
-    api.add_resource(AddPatientHistory, "/doctor/patient/<int:patient_id>/add-history")
+        if department_id:
+            try:
+                did = int(department_id)
+                query = query.filter(Doctor.department_id == did)
+            except ValueError:
+                pass
 
-    api.add_resource(DoctorAvailability, "/doctor/availability")
-    api.add_resource(PublishAvailability, "/doctor/availability/publish")
+        if approved in ("0", "1"):
+            query = query.filter(Doctor.is_approved == (approved == "1"))
 
+        docs = query.order_by(Doctor.id.asc()).all()
+        return {"doctors": [serialize_doctor(d) for d in docs]}, 200
 
+class DoctorRes(Resource):
+    def get(self, doctor_id):
+        d = Doctor.query.get_or_404(doctor_id)
+        profile = serialize_doctor(d)
 
-    # -------------------------
-    # PATIENT ROUTES
-    # -------------------------
-        # Patient
-    api.add_resource(PatientDashboard, "/patient/dashboard")
-    api.add_resource(PatientDepartments, "/patient/departments")
-    api.add_resource(DepartmentDetails, "/patient/department/<int:dept_id>")
-    api.add_resource(DoctorDetails, "/patient/doctor/<int:doctor_id>")
-    api.add_resource(DoctorAvailabilityPublic, "/patient/doctor/<int:doctor_id>/availability")
-    api.add_resource(BookAppointment, "/patient/appointment/book")
-    api.add_resource(CancelAppointment, "/patient/appointment/<int:appt_id>/cancel")
-    api.add_resource(PatientMedicalHistory, "/patient/history")
-    api.add_resource(ExportPatientHistoryCSV, "/patient/history/export")
-    api.add_resource(RescheduleAppointment, "/patient/appointment/<int:appt_id>/reschedule")
+        today = date.today()
+        end = today + timedelta(days=6)
+        slots = Availability.query.filter(
+            Availability.doctor_id == d.id,
+            Availability.date >= today,
+            Availability.date <= end
+        ).order_by(Availability.date.asc(), Availability.start_time.asc()).all()
+
+        profile["availability"] = [serialize_availability_slot(s) for s in slots]
+        return profile, 200

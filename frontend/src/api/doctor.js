@@ -1,14 +1,36 @@
-export async function api(url, options = {}) {
-  const token = localStorage.getItem("token");
+const BASE_URL = 'http://localhost:5000';
 
-  const res = await fetch(import.meta.env.VITE_API_URL + url, {
-    method: options.method || "GET",
+export async function api(endpoint, method = 'GET', body = null) {
+  const token = localStorage.getItem('token');
+
+  const options = {
+    method,
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` })
+    }
+  };
 
-  return await res.json();
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+    options.body = JSON.stringify(body);
+  }
+
+  try {
+    const response = await fetch(`${BASE_URL}/doctor${endpoint}`, options);
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    return data;
+  } catch (err) {
+    throw err;
+  }
 }

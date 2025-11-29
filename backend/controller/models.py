@@ -8,6 +8,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(128), nullable=False)
     role = db.Column(db.String(50), nullable=False, default='patient')
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
 
     # backrefs:
     doctor = db.relationship('Doctor', uselist=False, back_populates='user')
@@ -22,7 +23,7 @@ class Department(db.Model):
 
     @property
     def doctors_registered(self):
-        return len(self.doctors)
+        return len(self.doctors or [])
 
 class Doctor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -39,31 +40,61 @@ class Doctor(db.Model):
 
     def set_availability(self, slots):
         """
-        Replace availability for provided dates.
-        slots: [{ "date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM" }, ...]
+        Persist availability slots. slots: [{ "date": "YYYY-MM-DD", "start_time":"HH:MM", "end_time":"HH:MM" }, ...]
+        Replaces availability rows for the provided dates. Will raise ValueError if any existing scheduled appointments
+        for those dates would fall outside new availability (prevents orphaning appointments).
         """
-        # basic conversion and reuse previous implementation (assumes validated)
-        dates = {datetime.strptime(s['date'], "%Y-%m-%d").date() for s in slots}
-        Availability.query.filter(Availability.doctor_id == self.id, Availability.date.in_(dates)).delete(synchronize_session=False)
+        if not slots:
+            return
+
+        # convert to date -> list of (start_time, end_time)
+        ranges_by_date = {}
         for s in slots:
             d = datetime.strptime(s['date'], "%Y-%m-%d").date()
             st = datetime.strptime(s['start_time'], "%H:%M").time()
             et = datetime.strptime(s['end_time'], "%H:%M").time()
-            av = Availability(doctor_id=self.id, date=d, start_time=st, end_time=et, is_available=True)
-            db.session.add(av)
+            ranges_by_date.setdefault(d, []).append((st, et))
+
+        # check for appointment conflicts on each date
+        for d, ranges in ranges_by_date.items():
+            # gather scheduled appointments for this doctor on date d
+            start_of_day = datetime.combine(d, time.min)
+            end_of_day = datetime.combine(d, time.max)
+            appts = Appointment.query.filter(
+                Appointment.doctor_id == self.id,
+                Appointment.status == 'scheduled',
+                Appointment.appointment_time >= start_of_day,
+                Appointment.appointment_time <= end_of_day
+            ).all()
+            for a in appts:
+                a_start = a.appointment_time.time()
+                a_end = (a.appointment_time + timedelta(minutes=a.duration_minutes or 30)).time()
+                covered = False
+                for (st, et) in ranges:
+                    # appointment interval must be fully inside some new slot
+                    if (a_start >= st) and (a_end <= et):
+                        covered = True
+                        break
+                if not covered:
+                    raise ValueError(f"Appointment {a.id} at {a.appointment_time.isoformat()} would be outside new availability for {d.isoformat()}")
+
+        # delete existing availability rows for these dates, then insert new slots
+        dates = list(ranges_by_date.keys())
+        if dates:
+            Availability.query.filter(Availability.doctor_id == self.id, Availability.date.in_(dates)).delete(synchronize_session=False)
+        for d, ranges in ranges_by_date.items():
+            for st, et in ranges:
+                av = Availability(doctor_id=self.id, date=d, start_time=st, end_time=et, is_available=True)
+                db.session.add(av)
         db.session.commit()
 
     def publish_availability(self, slots):
         """
-        Validate slots against wireframe requirements:
-         - slots are within next 7 days (including today)
-         - start < end
-         - no overlapping slots per date in the provided list
-        Then persist via set_availability.
+        Validate and persist slots for next 7 days.
         Raises ValueError on validation error.
         """
         today = date.today()
-        max_day = today + timedelta(days=7)
+        max_day = today + timedelta(days=6)  # next 7 days inclusive
         parsed = []
         for s in slots:
             try:
@@ -74,7 +105,7 @@ class Doctor(db.Model):
                 raise ValueError("invalid slot format, expected date 'YYYY-MM-DD' and times 'HH:MM'")
 
             if d < today or d > max_day:
-                raise ValueError(f"date {d.isoformat()} out of allowed range (today → next 7 days)")
+                raise ValueError(f"date {d.isoformat()} out of allowed range (next 7 days)")
             if st >= et:
                 raise ValueError("start_time must be before end_time")
             parsed.append({'date': d.isoformat(), 'start_time': st.strftime("%H:%M"), 'end_time': et.strftime("%H:%M")})
@@ -89,29 +120,26 @@ class Doctor(db.Model):
                 if items_sorted[i]['start_time'] < items_sorted[i-1]['end_time']:
                     raise ValueError(f"overlapping slots for date {d}")
 
-        # all good, persist
+        # call set_availability which will also check appointment conflicts
         self.set_availability(parsed)
 
     def is_available_at(self, when_dt, duration_minutes=30):
-        """Check if doctor has an available slot that covers the interval and no overlapping scheduled appointment."""
+        """Return True if an available slot exists that covers the whole interval and no overlapping appointment exists."""
         d = when_dt.date()
-        t = when_dt.time()
-        end_dt = when_dt + timedelta(minutes=duration_minutes)
-        # find slot covering start and end
+        t_start = when_dt.time()
+        t_end = (when_dt + timedelta(minutes=duration_minutes)).time()
         slot = Availability.query.filter_by(doctor_id=self.id, date=d, is_available=True)\
-            .filter(Availability.start_time <= t, Availability.end_time >= end_dt.time()).first()
+            .filter(Availability.start_time <= t_start, Availability.end_time >= t_end).first()
         if not slot:
             return False
-        # check for overlapping appointments
-        overlap = Appointment.query.filter(
-            Appointment.doctor_id == self.id,
-            Appointment.status == 'scheduled',
-            Appointment.appointment_time < end_dt,
-            (Appointment.appointment_time + db.cast(db.func.strftime('%s','%s' % Appointment.duration_minutes), db.DateTime)) > when_dt
-        ).first()
-        # Because SQLite doesn't support datetime addition easily in SQLAlchemy expression above,
-        # we'll implement overlap check in Python where necessary when creating new appointment.
-        return overlap is None
+        # check overlapping scheduled appointments (simple python check)
+        appts = Appointment.query.filter_by(doctor_id=self.id, status='scheduled').all()
+        for a in appts:
+            a_start = a.appointment_time
+            a_end = a_start + timedelta(minutes=a.duration_minutes or 30)
+            if not (a_end <= when_dt or a_start >= when_dt + timedelta(minutes=duration_minutes)):
+                return False
+        return True
 
 class Availability(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -134,7 +162,7 @@ class Appointment(db.Model):
     patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
     doctor_id = db.Column(db.Integer, db.ForeignKey('doctor.id'), nullable=False)
     appointment_time = db.Column(db.DateTime, nullable=False)
-    duration_minutes = db.Column(db.Integer, default=30)   # appointment length
+    duration_minutes = db.Column(db.Integer, default=30)
     status = db.Column(db.String(50), default='scheduled')  # scheduled, completed, cancelled
     reason = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -160,9 +188,9 @@ class TokenBlocklist(db.Model):
     jti = db.Column(db.String(36), nullable=False, unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
 # Create a Patient row automatically after a User is inserted if role == 'patient'
 def _create_patient_after_insert(mapper, connection, target):
-    # target is the User instance; use a core insert to participate in the same transaction
     if getattr(target, "role", None) == "patient":
         connection.execute(
             Patient.__table__.insert().values(user_id=target.id, medical_history=None)
