@@ -8,6 +8,8 @@ from controller.auth import initialize_auth_routes
 from controller.routes import initialize_routes
 from werkzeug.security import generate_password_hash
 
+from flask_cors import CORS
+
 
 def create_app():
     app = Flask(__name__)
@@ -24,6 +26,8 @@ def create_app():
 
     db.init_app(app)
     api = Api(app)
+    CORS(app)
+
 
     # ---- AUTO CREATE ADMIN USER ----
     with app.app_context():

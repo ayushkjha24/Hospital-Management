@@ -1,5 +1,6 @@
 from controller.database import db
 from datetime import datetime, date, time, timedelta
+from sqlalchemy import event
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -158,3 +159,13 @@ class TokenBlocklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     jti = db.Column(db.String(36), nullable=False, unique=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Create a Patient row automatically after a User is inserted if role == 'patient'
+def _create_patient_after_insert(mapper, connection, target):
+    # target is the User instance; use a core insert to participate in the same transaction
+    if getattr(target, "role", None) == "patient":
+        connection.execute(
+            Patient.__table__.insert().values(user_id=target.id, medical_history=None)
+        )
+
+event.listen(User, "after_insert", _create_patient_after_insert)

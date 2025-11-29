@@ -58,6 +58,8 @@ class Login(Resource):
         })
 
         return {
+            "username": user.name,
+            "role": user.role,
             "message": "Login successful",
             "access_token": access_token
         }, 200
@@ -71,9 +73,23 @@ class Logout(Resource):
         db.session.commit()
 
         return {"message": "Successfully logged out"}, 200
+    
+class CheckEmail(Resource):
+    def post(self):
+        data = request.get_json()
+        email = data.get("email")
+        if not email:
+            return {"message": "Email parameter is required"}, 400
+
+        user = User.query.filter_by(email=email).first()
+        if user:
+            return {"exists": True}, 200
+        else:
+            return {"exists": False}, 200
 
 
 def initialize_auth_routes(api: Api):
     api.add_resource(Register, "/register")
+    api.add_resource(CheckEmail, "/check_email")
     api.add_resource(Login, "/login")
     api.add_resource(Logout, "/logout")
