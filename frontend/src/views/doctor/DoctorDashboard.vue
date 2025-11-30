@@ -17,6 +17,7 @@ const showHistoryModal = ref(false);
 const historyPatient = ref({ id: null, name: '' });
 const historyData = ref([]);
 const historyRole = ref('doctor');
+const name = ref('Doctor');
 
 async function loadData() {
   loading.value = true;
@@ -96,7 +97,9 @@ onMounted(loadData);
 
 <template>
   <div class="container py-4">
-
+        <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold">Welcome {{ name }}</h2>
+    </div>
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
 
     <div v-if="loading" class="text-center py-5">

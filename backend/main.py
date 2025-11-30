@@ -33,12 +33,14 @@ def create_app():
         # PUBLIC ENDPOINTS
         from controller.routes import (
             DepartmentsList, DepartmentResource,
-            DoctorsList, DoctorRes
+            DoctorsList, DoctorRes, SearchDoctors, SearchDepartments
         )
         api.add_resource(DepartmentsList, '/departments')
         api.add_resource(DepartmentResource, '/departments/<int:department_id>')
         api.add_resource(DoctorsList, '/doctors')
         api.add_resource(DoctorRes, '/doctors/<int:doctor_id>')
+        api.add_resource(SearchDoctors, '/search/doctors')
+        api.add_resource(SearchDepartments, '/search/departments')
 
         # AUTH ENDPOINTS
         from controller.auth import Login, Register
@@ -49,7 +51,7 @@ def create_app():
         from controller.admin.routes import (
             AdminDashboard, DoctorListResource, DoctorResource, DoctorBlacklistResource,
             PatientListResource, PatientResource, PatientBlacklistResource,
-            SearchDoctors, SearchPatients, UpcomingAppointments, AdminPatientHistory
+            SearchPatients, UpcomingAppointments, AdminPatientHistory
         )
         api.add_resource(AdminDashboard, '/admin/dashboard')
         api.add_resource(DoctorListResource, '/admin/doctors')
@@ -58,7 +60,6 @@ def create_app():
         api.add_resource(PatientListResource, '/admin/patients')
         api.add_resource(PatientResource, '/admin/patients/<int:patient_id>')
         api.add_resource(PatientBlacklistResource, '/admin/patients/<int:patient_id>/blacklist')
-        api.add_resource(SearchDoctors, '/admin/search/doctors')
         api.add_resource(SearchPatients, '/admin/search/patients')
         api.add_resource(UpcomingAppointments, '/admin/appointments')
         api.add_resource(AdminPatientHistory, '/admin/patients/<int:patient_id>/history')

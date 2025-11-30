@@ -229,6 +229,7 @@ class SearchDoctors(RoleProtectedResource):
             result.append({
                 "id": d.id,
                 "name": d.user.name,
+                "email": d.user.email,
                 "specialization": d.specialization
             })
         return result, 200

@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { getDashboard, cancelAppointment } from "@/api/patient";
+import { getDashboard, cancelAppointment, rescheduleAppointment } from "@/api/patient";
+import { api } from "@/api/patient";
 
 const router = useRouter();
 const patientName = ref("");
@@ -11,6 +12,10 @@ const stats = ref({ upcoming_appointments: 0, total_departments: 0 });
 const loading = ref(true);
 const message = ref("");
 const messageClass = ref("alert-info");
+const searchQuery = ref("");
+const searchType = ref("doctor");
+const searchResults = ref([]);
+const showSearchResults = ref(false);
 
 async function loadDashboard() {
   try {
@@ -52,6 +57,43 @@ function goToDepartment(id) {
 function goToHistory() {
   router.push("/patient/appointments");
 }
+function showMessage(msg, isError = false) {
+  message.value = msg;
+  messageClass.value = isError ? 'alert-danger' : 'alert-success';
+  setTimeout(() => (message.value = ''), 4000);
+}
+
+async function performSearch() {
+  if (!searchQuery.value.trim()) {
+    searchResults.value = [];
+    showSearchResults.value = false;
+    return;
+  }
+
+  try {
+    let res;
+
+    if (searchType.value === 'doctor') {
+      res = await api(`/search/doctors?q=${encodeURIComponent(searchQuery.value)}`);
+      console.log("Doctor search res:", res);
+
+      // backend returns a plain array
+      searchResults.value = Array.isArray(res) ? res : (res.doctors || []);
+    } 
+    else {
+      res = await api(`/search/departments?q=${encodeURIComponent(searchQuery.value)}`);
+
+      searchResults.value = Array.isArray(res) ? res : (res.departments || []);
+    }
+    showSearchResults.value = true;
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+async function reschedule(apptId) {
+  router.push(`/patient/appointment/${apptId}/reschedule`);
+}
+
 </script>
 
 <template>
@@ -67,6 +109,25 @@ function goToHistory() {
         </RouterLink>
       </div>
     </div> -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold">Welcome {{ patientName }}</h2>
+      <div class="d-flex gap-2">
+        <div class="input-group" style="max-width: 500px;">
+          <input
+            v-model="searchQuery"
+            @keyup.enter="performSearch"
+            type="text"
+            class="form-control"
+            placeholder="Doctor, patient, department..."
+          />
+          <select v-model="searchType" class="form-select" style="max-width: 120px;">
+            <option value="doctor">Doctor</option>
+            <option value="department">Department</option>
+          </select>
+          <button @click="performSearch" class="btn btn-outline-primary">Search</button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
 
@@ -96,6 +157,39 @@ function goToHistory() {
           </div>
         </div>
       </div>
+
+          <div v-if="showSearchResults" class="card mb-4">
+      <div class="card-header bg-light">
+        <h6 class="mb-0">
+          Search Results ({{ searchType === 'doctor' ? 'Doctors' : 'Patients' }})
+        </h6>
+      </div>
+      <div class="card-body">
+        <div v-if="searchResults.length === 0" class="alert alert-info mb-0">
+          No results found
+        </div>
+        <div v-else class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Name</th>
+                <th v-if="searchType === 'doctor'">Email</th>
+                <th v-if="searchType === 'doctor'">Specialization</th>
+                <th v-if="searchType === 'department'">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in searchResults" :key="item.id">
+                <td>{{ item.name }}</td>
+                <td v-if="searchType === 'doctor'">{{ item.email }}</td>
+                <td v-if="searchType === 'doctor'">{{ item.specialization }}</td>
+                <td v-if="searchType === 'department'">{{ item.description }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
       <!-- Departments Section -->
       <section class="mb-4">
@@ -145,6 +239,12 @@ function goToHistory() {
                   <span class="badge bg-warning">{{ appt.status }}</span>
                 </td>
                 <td>
+                  <button 
+                    class="btn btn-sm btn-info me-1" 
+                    @click="reschedule(appt.id)"
+                  >
+                    Reschedule
+                  </button>
                   <button 
                     class="btn btn-sm btn-danger" 
                     @click="handleCancelAppointment(appt.id)"

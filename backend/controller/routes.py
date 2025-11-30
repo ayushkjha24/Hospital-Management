@@ -90,3 +90,36 @@ class DoctorRes(Resource):
 
         profile["availability"] = [serialize_availability_slot(s) for s in slots]
         return profile, 200
+    
+class SearchDoctors(Resource):
+    def get(self):
+        q = request.args.get("q", "").lower()
+        doctors = Doctor.query.join(User).filter(
+            (User.name.ilike(f"%{q}%")) | (Doctor.specialization.ilike(f"%{q}%"))
+        ).all()
+        
+        result = []
+        for d in doctors:
+            result.append({
+                "id": d.id,
+                "name": d.user.name,
+                "email": d.user.email,
+                "specialization": d.specialization
+            })
+        return result, 200
+class SearchDepartments(Resource):
+    def get(self):
+        q = request.args.get("q", "").lower()
+        departments = Department.query.filter(
+            Department.name.ilike(f"%{q}%")
+        ).all()
+        
+        result = []
+        for dep in departments:
+            result.append({
+                "id": dep.id,
+                "name": dep.name,
+                "description": getattr(dep, "description", None),
+                "doctors_registered": getattr(dep, "doctors_registered", 0)
+            })
+        return result, 200

@@ -28,7 +28,7 @@ const appointmentsLoading = ref(true);
 
 // Search & Filter
 const searchQuery = ref('');
-const searchType = ref('doctor'); // doctor or patient
+const searchType = ref('doctor'); 
 const searchResults = ref([]);
 const showSearchResults = ref(false);
 
@@ -256,18 +256,26 @@ async function performSearch() {
   }
 
   try {
+    let res;
+
     if (searchType.value === 'doctor') {
-      const res = await api(`/admin/search/doctors?q=${encodeURIComponent(searchQuery.value)}`);
-      searchResults.value = (res && res.doctors) ? res.doctors : [];
-    } else {
-      const res = await api(`/admin/search/patients?q=${encodeURIComponent(searchQuery.value)}`);
-      searchResults.value = (res && res.patients) ? res.patients : [];
+      res = await api(`/search/doctors?q=${encodeURIComponent(searchQuery.value)}`);
+      console.log("Doctor search res:", res);
+
+      // backend returns a plain array
+      searchResults.value = Array.isArray(res) ? res : (res.doctors || []);
+    } 
+    else {
+      res = await api(`/admin/search/patients?q=${encodeURIComponent(searchQuery.value)}`);
+
+      searchResults.value = Array.isArray(res) ? res : (res.patients || []);
     }
     showSearchResults.value = true;
   } catch (err) {
     showMessage(err.message, true);
   }
 }
+
 
 // ===================== Utilities =====================
 function showMessage(msg, isError = false) {
@@ -304,10 +312,10 @@ onMounted(async () => {
 <template>
   <div class="container-fluid py-4">
     <!-- Header -->
-    <!-- <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="fw-bold">Welcome Admin</h2>
       <div class="d-flex gap-2">
-        <div class="input-group" style="max-width: 300px;">
+        <div class="input-group" style="max-width: 500px;">
           <input
             v-model="searchQuery"
             @keyup.enter="performSearch"
@@ -318,11 +326,12 @@ onMounted(async () => {
           <select v-model="searchType" class="form-select" style="max-width: 120px;">
             <option value="doctor">Doctor</option>
             <option value="patient">Patient</option>
+            <option value="department">Department</option>
           </select>
           <button @click="performSearch" class="btn btn-outline-primary">Search</button>
         </div>
       </div>
-    </div> -->
+    </div>
 
     <!-- Message -->
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
@@ -381,8 +390,6 @@ onMounted(async () => {
                 <th>Name</th>
                 <th>Email</th>
                 <th v-if="searchType === 'doctor'">Specialization</th>
-                <th v-if="searchType === 'doctor'">Department</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -390,23 +397,6 @@ onMounted(async () => {
                 <td>{{ item.name }}</td>
                 <td>{{ item.email }}</td>
                 <td v-if="searchType === 'doctor'">{{ item.specialization }}</td>
-                <td v-if="searchType === 'doctor'">{{ item.department || 'N/A' }}</td>
-                <td>
-                  <RouterLink
-                    v-if="searchType === 'doctor'"
-                    :to="`/admin/doctors/edit/${item.id}`"
-                    class="btn btn-sm btn-warning me-1"
-                  >
-                    Edit
-                  </RouterLink>
-                  <RouterLink
-                    v-if="searchType === 'patient'"
-                    :to="`/admin/patients/${item.id}`"
-                    class="btn btn-sm btn-info me-1"
-                  >
-                    View
-                  </RouterLink>
-                </td>
               </tr>
             </tbody>
           </table>

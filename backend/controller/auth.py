@@ -15,6 +15,7 @@ class Register(Resource):
         data = request.get_json()
         name = data.get("name")
         email = data.get("email")
+        phone = data.get("phone")
         password = data.get("password")
 
         if not all([name, email, password]):
