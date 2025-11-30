@@ -1,36 +1,33 @@
 const BASE_URL = 'http://localhost:5000';
 
-export async function api(endpoint, method = 'GET', body = null) {
-  const token = localStorage.getItem('token');
+export async function api(endpoint, method = 'GET', body = null, skipPrefix = false) {
+  const token = localStorage.getItem('token') || '';
+
+  // Allow bypassing /doctor prefix
+  const fullEndpoint = skipPrefix
+    ? endpoint
+    : endpoint.startsWith('/doctor')
+      ? endpoint
+      : `/doctor${endpoint}`;
 
   const options = {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` })
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   };
 
-  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+  if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
     options.body = JSON.stringify(body);
   }
 
-  try {
-    const response = await fetch(`${BASE_URL}/doctor${endpoint}`, options);
+  const res = await fetch(`${BASE_URL}${fullEndpoint}`, options);
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
 
-    if (response.status === 204) {
-      return null;
-    }
-
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
-
-    if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-
-    return data;
-  } catch (err) {
-    throw err;
+  if (!res.ok) {
+    throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
   }
+  return data;
 }

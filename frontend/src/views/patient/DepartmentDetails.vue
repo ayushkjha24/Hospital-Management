@@ -74,6 +74,7 @@ onMounted(loadDepartments);
                 <div class="card-body">
                   <h5 class="card-title">{{ doc.name }}</h5>
                   <p class="card-text text-muted">{{ doc.specialization }}</p>
+                  <p class="small"><strong>Overview</strong>{{ doc.overview ? ': ' + doc.overview : ' N/A' }}</p>
                   <p class="small"><strong>Experience:</strong> {{ doc.experience_years || 'N/A' }} years</p>
                   <button @click="viewDoctor(doc.id)" class="btn btn-primary btn-sm w-100">
                     View Availability & Book

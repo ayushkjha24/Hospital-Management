@@ -56,7 +56,7 @@ function goToHistory() {
 
 <template>
   <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="fw-bold">Welcome, {{ patientName }}</h2>
       <div class="btn-group">
         <RouterLink to="/patient/appointments" class="btn btn-sm btn-outline-secondary">
@@ -66,7 +66,7 @@ function goToHistory() {
           Edit Profile
         </RouterLink>
       </div>
-    </div>
+    </div> -->
 
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
 

@@ -15,14 +15,24 @@
 
       <!-- ADMIN VIEW -->
       <template v-if="role === 'admin'">
-        <input
-          v-model="searchQuery"
-          type="text"
-          class="form-control form-control-sm"
-          placeholder="Search..."
-          style="width: 200px;"
-        />
-        <button class="btn btn-light btn-sm" @click="submitSearch">Search</button>
+        <div class="d-flex align-items-center gap-2">
+          <input
+            v-model="searchQuery"
+            @keyup.enter="submitSearch"
+            type="text"
+            class="form-control form-control-sm"
+            placeholder="Search patients, doctors or department..."
+            style="width: 220px;"
+            aria-label="admin-search"
+          />
+          <select v-model="searchType" class="form-select form-select-sm" style="width: 150px;">
+            <option value="all">All</option>
+            <option value="patient">Patient</option>
+            <option value="doctor">Doctor</option>
+            <option value="department">Department</option>
+          </select>
+          <button class="btn btn-light btn-sm" @click="submitSearch">Search</button>
+        </div>
         <button class="btn btn-danger btn-sm" @click="logout">Logout</button>
       </template>
 
@@ -60,6 +70,7 @@ const role = computed(() => auth.role);
 const username = computed(() => auth.username);
 
 const searchQuery = ref("");
+const searchType = ref("all");
 
 // Intelligent fallback so we NEVER see "undefined"
 const welcomeName = computed(() => {
@@ -79,7 +90,21 @@ const logout = () => {
 };
 
 const submitSearch = () => {
-  console.log("Search:", searchQuery.value);
+  const q = (searchQuery.value || "").trim();
+  const type = searchType.value || "all";
+  if (!q) {
+    // if empty, go to admin main page
+    router.push({ path: "/admin" });
+    return;
+  }
+
+  // Navigate to admin dashboard/search route with query params.
+  // AdminDashboard (or a dedicated search route) should read these query params
+  // and perform the appropriate backend call (patient, doctor or department).
+  router.push({
+    path: "/admin",
+    query: { q, type }
+  });
 };
 </script>
 

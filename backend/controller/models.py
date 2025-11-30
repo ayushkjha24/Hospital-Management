@@ -177,6 +177,7 @@ class Treatment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'), nullable=False)
     diagnosis = db.Column(db.Text)
+    test_done = db.Column(db.Text)
     prescription = db.Column(db.Text)
     notes = db.Column(db.Text)
     next_visit = db.Column(db.DateTime, nullable=True)

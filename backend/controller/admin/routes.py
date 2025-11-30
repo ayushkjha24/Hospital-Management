@@ -1,7 +1,9 @@
 from flask import request
+from flask_jwt_extended import get_jwt_identity
+from flask_restful import Resource
 from controller.security import RoleProtectedResource
 from controller.database import db
-from controller.models import User, Doctor, Patient, Department, Appointment
+from controller.models import User, Doctor, Patient, Department, Appointment, Treatment
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -122,10 +124,6 @@ class DoctorResource(RoleProtectedResource):
         d.user.is_active = False
         db.session.commit()
         return {"message": "Doctor deactivated"}, 200
-    
-class AddDoctor(RoleProtectedResource):
-    required_roles = ["admin"]
-
 
 
 class DoctorBlacklistResource(RoleProtectedResource):
@@ -183,9 +181,30 @@ class PatientResource(RoleProtectedResource):
     
     def delete(self, patient_id):
         p = Patient.query.get_or_404(patient_id)
-        p.user.is_active = False
-        db.session.commit()
-        return {"message": "Patient deactivated"}, 200
+        user = getattr(p, "user", None)
+        try:
+            # Safely remove dependent records first to avoid FK / NOT NULL violations.
+            # Delete treatments associated with this patient's appointments, then appointments.
+            appt_ids = [a.id for a in getattr(p, "appointments", [])]
+            if appt_ids:
+                # remove treatments linked to those appointments
+                Treatment.query.filter(Treatment.appointment_id.in_(appt_ids)).delete(synchronize_session=False)
+                # remove appointments
+                Appointment.query.filter(Appointment.id.in_(appt_ids)).delete(synchronize_session=False)
+
+            # delete patient record
+            db.session.delete(p)
+            db.session.commit()
+
+            # now it's safe to delete the linked user (if desired)
+            if user:
+                db.session.delete(user)
+                db.session.commit()
+
+            return {"message": "Patient and related records deleted"}, 200
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 500
 
 class PatientBlacklistResource(RoleProtectedResource):
     required_roles = ["admin"]
@@ -231,6 +250,7 @@ class SearchPatients(RoleProtectedResource):
                 "email": p.user.email
             })
         return result, 200
+
 class UpcomingAppointments(RoleProtectedResource):
     required_roles = ["admin"]
     
@@ -258,3 +278,72 @@ class UpcomingAppointments(RoleProtectedResource):
             })
         
         return {"appointments": result}, 200
+
+class AdminPatientHistory(RoleProtectedResource):
+    required_roles = ["admin", "doctor"]
+
+    def get(self, patient_id):
+        """
+        Return all appointments for a patient (across all doctors) plus the next/upcoming appointment.
+        Response: { patient: {...}, current_appointment: {...} | None, history: [...] }
+        """
+        # validate patient exists
+        patient = Patient.query.get(patient_id)
+        if not patient:
+            return {"error": "Patient not found"}, 404
+
+        # fetch all appointments for the patient (no doctor filter)
+        appts = Appointment.query.filter_by(patient_id=patient_id).order_by(Appointment.appointment_time.desc()).all()
+
+        history = []
+        for appt in appts:
+            # fetch treatment if exists
+            treatment = Treatment.query.filter_by(appointment_id=appt.id).first()
+            doctor_name = appt.doctor.user.name if getattr(appt, "doctor", None) and getattr(appt.doctor, "user", None) else None
+            doctor_specialization = appt.doctor.specialization if getattr(appt, "doctor", None) else None
+
+            history.append({
+                "id": appt.id,
+                "doctor_id": appt.doctor_id,
+                "doctor_name": doctor_name,
+                "doctor_specialization": doctor_specialization,
+                "date": appt.appointment_time.strftime("%Y-%m-%d"),
+                "time": appt.appointment_time.strftime("%H:%M"),
+                "appointment_time": appt.appointment_time.strftime("%Y-%m-%d %H:%M"),
+                "status": appt.status,
+                "tests_done": treatment.test_done if treatment else None,
+                "diagnosis": treatment.diagnosis if treatment else None,
+                "prescription": treatment.prescription if treatment else None,
+                "notes": treatment.notes if treatment else None,
+                "next_visit": treatment.next_visit.strftime("%Y-%m-%d") if treatment and treatment.next_visit else None
+            })
+
+        # find the next upcoming appointment (any doctor)
+        now = datetime.now()
+        next_appt = Appointment.query.filter(
+            Appointment.patient_id == patient_id,
+            Appointment.appointment_time >= now,
+            Appointment.status.in_(["scheduled", "confirmed"])
+        ).order_by(Appointment.appointment_time.asc()).first()
+
+        current_appointment = None
+        if next_appt:
+            treatment = Treatment.query.filter_by(appointment_id=next_appt.id).first()
+            current_appointment = {
+                "id": next_appt.id,
+                "doctor_id": next_appt.doctor_id,
+                "doctor_name": next_appt.doctor.user.name if getattr(next_appt, "doctor", None) and getattr(next_appt.doctor, "user", None) else None,
+                "date": next_appt.appointment_time.strftime("%Y-%m-%d"),
+                "time": next_appt.appointment_time.strftime("%H:%M"),
+                "appointment_time": next_appt.appointment_time.strftime("%Y-%m-%d %H:%M"),
+                "status": next_appt.status,
+                "notes": treatment.notes if treatment else None
+            }
+
+        patient_info = {
+            "id": patient.id,
+            "name": patient.user.name if getattr(patient, "user", None) else None,
+            "email": patient.user.email if getattr(patient, "user", None) else None
+        }
+
+        return {"patient": patient_info, "current_appointment": current_appointment, "history": history}, 200

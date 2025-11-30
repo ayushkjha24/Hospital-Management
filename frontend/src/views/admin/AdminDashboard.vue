@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { api } from '@/api/admin';
 import { useRouter } from 'vue-router';
+import PatientHistoryTable from '@/components/PatientHistoryTable.vue';
 
 const router = useRouter();
 
@@ -34,6 +35,12 @@ const showSearchResults = ref(false);
 // UI State
 const message = ref('');
 const messageClass = ref('alert-success');
+
+// Patient history modal state
+const showHistoryModal = ref(false);
+const historyPatient = ref({ id: null, name: '', doctor_name: '', department: '' });
+const historyData = ref([]); // pass to PatientHistoryTable
+const historyRole = ref('patient'); // show list only (no action buttons)
 
 // ===================== Stats =====================
 async function loadStats() {
@@ -128,6 +135,118 @@ async function loadAppointments() {
   }
 }
 
+// Show patient history for an appointment (open modal)
+async function viewAppointmentHistory(apptOrPatient) {
+  // apptOrPatient can be an appointment (with patient/patient_id) or a patient object (with id,name)
+  try {
+    showHistoryModal.value = false;
+    historyData.value = [];
+    historyPatient.value = { id: null, name: '', doctor_name: '', department: '' };
+
+    if (!apptOrPatient) {
+      showMessage('No patient/appointment provided', true);
+      return;
+    }
+
+    // normalize id and name
+    let pid = null;
+    let pname = '';
+    // patient object (has id and name/email/phone)
+    if (apptOrPatient.id != null && (apptOrPatient.name || apptOrPatient.email || apptOrPatient.phone)) {
+      pid = apptOrPatient.id;
+      pname = apptOrPatient.name || '';
+    } else if (apptOrPatient.patient_id != null) {
+      // appointment object with patient_id
+      pid = apptOrPatient.patient_id;
+      pname = apptOrPatient.patient || '';
+    } else if (apptOrPatient.patient) {
+      // appointment object with only patient name
+      pname = apptOrPatient.patient;
+    } else if (apptOrPatient.name) {
+      // fallback
+      pname = apptOrPatient.name;
+    }
+
+    // try search by name if no id
+    if (!pid && pname) {
+      try {
+        const sres = await api(`/admin/search/patients?q=${encodeURIComponent(pname)}`);
+        // support both response shapes: array or { patients: [...] }
+        let found = null;
+        if (Array.isArray(sres) && sres.length > 0) {
+          found = sres[0];
+        } else if (sres && Array.isArray(sres.patients) && sres.patients.length > 0) {
+          found = sres.patients[0];
+        }
+        if (found) {
+          pid = found.id ?? found.patient_id ?? null;
+          pname = found.name ?? found.patient ?? pname;
+        }
+      } catch (e) {
+        // ignore search failure, we'll show lightweight modal below
+      }
+    }
+
+    historyPatient.value = {
+      id: pid,
+      name: pname || (apptOrPatient.name || apptOrPatient.patient || 'Unknown'),
+      doctor_name: apptOrPatient.doctor || apptOrPatient.doctor_name || '',
+      department: apptOrPatient.department || ''
+    };
+
+    // if still no id, show modal with basic info and do not call API
+    if (!pid) {
+      historyData.value = [];
+      showHistoryModal.value = true;
+      return;
+    }
+
+    // fetch history (admin endpoint preferred, fallback to doctor)
+    let res;
+    try {
+      res = await api(`/admin/patients/${pid}/history`);
+    } catch (err) {
+      res = await api(`/doctor/patient/${pid}/history`);
+    }
+
+    if (res?.patient) {
+      historyPatient.value = {
+        id: res.patient.id ?? pid,
+        name: res.patient.name ?? historyPatient.value.name,
+        doctor_name: res.patient.doctor_name ?? historyPatient.value.doctor_name,
+        department: res.patient.department ?? historyPatient.value.department
+      };
+    }
+
+    const arr = Array.isArray(res?.history) ? res.history : Array.isArray(res?.appointments) ? res.appointments : [];
+    historyData.value = arr.map((h, idx) => ({
+      id: h.id ?? idx + 1,
+      visit_no: idx + 1,
+      visit_type: h.visit_type || h.type || 'In-person',
+      tests_done: h.tests_done || h.test_done || '',
+      diagnosis: h.diagnosis || h.notes || '',
+      prescription: h.prescription || '',
+      medicines: h.medicines || h.medicines_text || []
+    }));
+
+    showHistoryModal.value = true;
+  } catch (err) {
+    showMessage('Could not load patient history: ' + (err?.message || err), true);
+  }
+}
+
+// handler from PatientHistoryTable events
+function onHistoryBack() {
+  showHistoryModal.value = false;
+}
+
+function onHistoryView(row) {
+  // admin clicked view on a specific visit row - navigate to detailed admin patient view if exists
+  if (historyPatient.value.id) {
+    router.push(`/admin/patients/${historyPatient.value.id}/history/${row.id}`);
+  }
+}
+
 // ===================== Search =====================
 async function performSearch() {
   if (!searchQuery.value.trim()) {
@@ -185,7 +304,7 @@ onMounted(async () => {
 <template>
   <div class="container-fluid py-4">
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="fw-bold">Welcome Admin</h2>
       <div class="d-flex gap-2">
         <div class="input-group" style="max-width: 300px;">
@@ -203,7 +322,7 @@ onMounted(async () => {
           <button @click="performSearch" class="btn btn-outline-primary">Search</button>
         </div>
       </div>
-    </div>
+    </div> -->
 
     <!-- Message -->
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>
@@ -387,7 +506,7 @@ onMounted(async () => {
                   <span class="badge bg-info">{{ patient.appointments_count || 0 }}</span>
                 </td>
                 <td>
-                  <button @click="viewPatientHistory(patient.id)" class="btn btn-sm btn-info me-1">
+                  <button @click="viewAppointmentHistory(patient)" class="btn btn-sm btn-info me-1">
                     View History
                   </button>
                   <button @click="blacklistPatient(patient.id)" class="btn btn-sm btn-dark me-1">
@@ -447,7 +566,7 @@ onMounted(async () => {
                   <span class="badge bg-warning">{{ appt.status }}</span>
                 </td>
                 <td>
-                  <button class="btn btn-sm btn-primary">View</button>
+                  <button class="btn btn-sm btn-primary" @click="viewAppointmentHistory(appt)">View</button>
                 </td>
               </tr>
             </tbody>
@@ -460,6 +579,32 @@ onMounted(async () => {
         </button>
       </div>
     </div>
+
+    <!-- Patient history modal -->
+    <div v-if="showHistoryModal" class="modal-backdrop" style="position:fixed;inset:0;z-index:1050;display:flex;align-items:center;justify-content:center;padding:1rem;">
+      <div class="modal-dialog modal-lg" style="max-width:1000px;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Patient History — {{ historyPatient.name }}</h5>
+            <button type="button" class="btn-close" @click="showHistoryModal = false"></button>
+          </div>
+          <div class="modal-body">
+            <PatientHistoryTable
+              :patient="historyPatient"
+              :history="historyData"
+              :role="historyRole"
+              :showBack="false"
+              @back="onHistoryBack"
+            />
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="showHistoryModal = false">Close</button>
+            <button v-if="historyPatient.id" class="btn btn-primary" @click="router.push(`/admin/patients/${historyPatient.id}/history`)">Open full record</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /.modal -->
   </div>
 </template>
 
@@ -492,5 +637,11 @@ onMounted(async () => {
 .input-group {
   border-radius: 4px;
   overflow: hidden;
+}
+
+/* simple modal backdrop styling */
+.modal-backdrop .modal-content {
+  max-height: 80vh;
+  overflow: auto;
 }
 </style>
