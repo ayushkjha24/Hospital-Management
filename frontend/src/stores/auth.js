@@ -2,7 +2,7 @@ import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 
 export const useAuthStore = defineStore("auth", () => {
-  // Initialize from localStorage
+
   const token = ref(localStorage.getItem("token") || "")
   const role = ref(localStorage.getItem("role") || "")
   const username = ref(localStorage.getItem("username") || "")
@@ -25,19 +25,21 @@ export const useAuthStore = defineStore("auth", () => {
 
       const data = await res.json()
 
-      // Set reactive values
       token.value = data.access_token
       role.value = data.role
-      username.value = data.name
+
+      // Safe fallback (prevents undefined username)
+      username.value = data.name || data.username || ""
+
       email.value = data.email
 
-      // Persist to localStorage
-      localStorage.setItem("token", data.access_token)
-      localStorage.setItem("role", data.role)
-      localStorage.setItem("username", data.name)
-      localStorage.setItem("email", data.email)
+      localStorage.setItem("token", token.value)
+      localStorage.setItem("role", role.value)
+      localStorage.setItem("username", username.value)
+      localStorage.setItem("email", email.value)
 
       return true
+
     } catch (err) {
       console.error("Login error:", err)
       throw err
@@ -86,7 +88,6 @@ export const useAuthStore = defineStore("auth", () => {
     register,
     logout,
   }
-},
-{
-  persist: true // Enable persistence if you have pinia-persist plugin
+}, {
+  persist: true
 })

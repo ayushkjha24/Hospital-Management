@@ -41,6 +41,45 @@ class DoctorListResource(RoleProtectedResource):
                 "is_approved": bool(d.is_approved)
             })
         return {"doctors": out}, 200
+    def post(self):
+        # Create a new doctor
+        data = request.get_json() or {}
+        name = data.get("name")
+        email = data.get("email")
+        password = data.get("password")  # <-- Ensure password is captured
+        specialization = data.get("specialization")
+        experience_years = data.get("experience_years")
+        department_id = data.get("department_id")
+        
+        if not all([name, email, password, specialization, experience_years]):
+            return {"message": "Missing required fields"}, 400
+        
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return {"message": "Email already registered"}, 400
+        
+        hashed_password = generate_password_hash(password)
+        new_user = User(
+            name=name,
+            email=email,
+            password=hashed_password,
+            role="doctor",
+            is_active=True
+        )
+        db.session.add(new_user)
+        db.session.commit()
+        
+        new_doctor = Doctor(
+            user_id=new_user.id,
+            specialization=specialization,
+            experience_years=experience_years,
+            department_id=department_id,
+            is_approved=False
+        )
+        db.session.add(new_doctor)
+        db.session.commit()
+        
+        return {"message": "Doctor created", "doctor_id": new_doctor.id}, 201    
 
 class DoctorResource(RoleProtectedResource):
     required_roles = ["admin"]
@@ -86,45 +125,7 @@ class DoctorResource(RoleProtectedResource):
     
 class AddDoctor(RoleProtectedResource):
     required_roles = ["admin"]
-    def post(self):
-        # Create a new doctor
-        data = request.get_json() or {}
-        name = data.get("name")
-        email = data.get("email")
-        password = data.get("password")  # <-- Ensure password is captured
-        specialization = data.get("specialization")
-        experience_years = data.get("experience_years")
-        department_id = data.get("department_id")
-        
-        if not all([name, email, password, specialization, experience_years]):
-            return {"message": "Missing required fields"}, 400
-        
-        existing_user = User.query.filter_by(email=email).first()
-        if existing_user:
-            return {"message": "Email already registered"}, 400
-        
-        hashed_password = generate_password_hash(password)
-        new_user = User(
-            name=name,
-            email=email,
-            password=hashed_password,
-            role="doctor",
-            is_active=True
-        )
-        db.session.add(new_user)
-        db.session.commit()
-        
-        new_doctor = Doctor(
-            user_id=new_user.id,
-            specialization=specialization,
-            experience_years=experience_years,
-            department_id=department_id,
-            is_approved=False
-        )
-        db.session.add(new_doctor)
-        db.session.commit()
-        
-        return {"message": "Doctor created", "doctor_id": new_doctor.id}, 201
+
 
 
 class DoctorBlacklistResource(RoleProtectedResource):

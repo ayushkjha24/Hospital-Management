@@ -92,7 +92,7 @@ async function handleSubmit() {
       await api(`/admin/doctors/${route.params.id}`, 'PUT', form.value);
       showMessage('Doctor updated');
     } else {
-      await api('/admin/add-doctor', 'POST', form.value);  // Ensure password is included
+      await api('/admin/doctors', 'POST', form.value);  // Ensure password is included
       showMessage('Doctor added');
     }
     setTimeout(() => router.push('/admin/doctors'), 1200);

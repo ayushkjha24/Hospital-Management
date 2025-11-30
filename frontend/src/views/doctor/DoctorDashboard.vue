@@ -74,7 +74,7 @@ onMounted(loadData);
           <tr>
             <th>Patient</th>
             <th>Date & Time</th>
-            <th>Status</th>
+            <th>History</th>
             <th>Actions</th>
           </tr>
         </thead>

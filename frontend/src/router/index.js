@@ -145,6 +145,12 @@ const routes = [
     name: 'PatientAppointments',
     component: () => import('@/views/patient/PatientHistory.vue'),
     meta: { requiresAuth: true, roles: ['patient'] }
+  },
+  {
+    path: '/patient/appointment/:id/reschedule',
+    name: 'PatientRescheduleAppointment',
+    component: () => import('@/views/patient/RescheduleAppointment.vue'),
+    meta: { requiresAuth: true, role: 'patient' }
   }
 ];
 

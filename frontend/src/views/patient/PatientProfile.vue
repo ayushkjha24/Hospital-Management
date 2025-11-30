@@ -18,7 +18,7 @@ const messageClass = ref('alert-success');
 
 async function loadProfile() {
   try {
-    const res = await api('/profile');
+    const res = await api('/patient/profile');
     form.value = res;
   } catch (err) {
     showMessage(err.message, true);
@@ -30,8 +30,9 @@ async function loadProfile() {
 async function saveProfile() {
   saving.value = true;
   try {
-    await api('/profile', 'PUT', form.value);
+    await api('/patient/profile', 'PUT', form.value);
     showMessage('Profile updated successfully');
+    router.push('/');
   } catch (err) {
     showMessage(err.message, true);
   } finally {

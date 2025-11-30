@@ -66,7 +66,7 @@ def create_app():
         from controller.patient.routes import (
             PatientDashboard, BookAppointment,
             PatientAppointments, PatientProfile, RescheduleAppointment,
-            CancelAppointment, PatientPastAppointments
+            CancelAppointment, PatientAllAppointments
         )
         api.add_resource(PatientDashboard, '/patient/dashboard')
         #api.add_resource(SearchAvailableDoctors, '/patient/search/doctors')
@@ -75,7 +75,7 @@ def create_app():
         api.add_resource(PatientProfile, '/patient/profile')
         api.add_resource(RescheduleAppointment, '/patient/appointment/<int:appt_id>/reschedule')
         api.add_resource(CancelAppointment, '/patient/appointment/<int:appt_id>/cancel')
-        api.add_resource(PatientPastAppointments, '/patient/appointments/past')
+        api.add_resource(PatientAllAppointments, '/patient/appointments')
         
         # create tables if needed
         db.create_all()

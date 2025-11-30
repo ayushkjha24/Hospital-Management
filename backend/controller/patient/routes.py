@@ -321,7 +321,7 @@ class CancelAppointment(RoleProtectedResource):
 # ----------------------------------------------------
 # Past appointments
 # ----------------------------------------------------
-class PatientPastAppointments(RoleProtectedResource):
+class PatientAllAppointments(RoleProtectedResource):
     required_roles = ["patient"]
 
     def get(self):
@@ -329,11 +329,9 @@ class PatientPastAppointments(RoleProtectedResource):
         patient = Patient.query.filter_by(user_id=user_id).first()
         if not patient:
             return {"error": "Patient profile not found"}, 404
-
-        now = datetime.now()
+        #list all appointments
         appts = Appointment.query.filter(
-            Appointment.patient_id == patient.id,
-            Appointment.appointment_time < now
+            Appointment.patient_id == patient.id
         ).order_by(Appointment.appointment_time.desc()).all()
 
         result = []
