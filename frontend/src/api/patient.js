@@ -39,3 +39,6 @@ export function updateProfile(data) {
 export function rescheduleAppointment(apptId, date, startTime) {
   return api(`/patient/appointment/${apptId}/reschedule`, 'POST', { date, start_time: startTime });
 }
+export function doctorDetails(doctorId) {
+  return api(`/patient/doctor/${doctorId}`, 'GET');
+}
