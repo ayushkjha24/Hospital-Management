@@ -24,11 +24,3 @@ class Config:
 
     # Redis (for caching)
     REDIS_URL = "redis://localhost:6379/0"
-
-    # Mail config
-    MAIL_SERVER = 'smtp.gmail.com'
-    MAIL_PORT = 587
-    MAIL_USE_TLS = True
-    MAIL_USERNAME = "<YOUR EMAIL>"
-    MAIL_PASSWORD = "<APP SPECIFIC PASSWORD>"
-    MAIL_DEFAULT_SENDER = "<YOUR EMAIL>"

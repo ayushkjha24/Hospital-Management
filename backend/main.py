@@ -12,6 +12,9 @@ from controller.cache import init_cache
 
 # ✅ Import celery here (safe – outside create_app)
 from celery_app import celery, init_celery
+from dotenv import load_dotenv
+load_dotenv()
+
 
 
 

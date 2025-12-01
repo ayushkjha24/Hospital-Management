@@ -1,5 +1,8 @@
 from celery import Celery
 from celery.schedules import crontab
+from dotenv import load_dotenv
+load_dotenv()
+
 
 # Create Celery instance with Redis as broker + backend
 celery = Celery(
@@ -36,3 +39,9 @@ def init_celery(app):
 def add_numbers(a, b):
     print("Executing Celery task...")
     return a + b
+
+import controller.jobs.daily_reminder
+import controller.jobs.monthly_report
+import controller.jobs.export_csv
+import controller.jobs.test_email
+

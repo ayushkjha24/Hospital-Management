@@ -90,9 +90,46 @@ The project is divided into two main parts:
     npm run dev
     ```
 
+### 🚀 Starting Flask, Celery Worker & Celery Beat
+# 1️⃣ Activate your virtual environment
+```
+source .venv/bin/activate
+```
+
+# 2️⃣ Start Flask API (Terminal 1)
+```
+python main.py
+```
+
+# 3️⃣ Start Celery Worker (Terminal 2)
+```
+celery -A celery_app.celery worker --loglevel=info
+```
+
+# 4️⃣ Start Celery Beat Scheduler (Terminal 3)
+```
+celery -A celery_app.celery beat --loglevel=info
+```
+
+### ⚡ Run Worker + Beat Together (Development Only)
+```
+celery -A celery_app.celery worker --beat --loglevel=info
+```
+
 ## Technologies Used
 
 *   **Backend:** Python, Flask, SQLAlchemy, Celery
 *   **Frontend:** Vue.js, Vite, Vue Router, Pinia
 *   **Database:** SQLite
 *   **Task Queue:** Redis
+
+
+### Problems that I have faced 
+
+- Migration problem
+- Task scheduling 
+- Circular import in db
+- Improper Project structure
+- Authentication and Authorization challenges
+- Vue API communication issues
+- And Many more....
