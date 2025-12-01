@@ -409,8 +409,11 @@ onMounted(async () => {
       <div class="card-header d-flex justify-content-between align-items-center bg-light">
         <h6 class="mb-0">Registered Doctors</h6>
         <RouterLink to="/admin/doctors/add" class="btn btn-sm btn-success">
-          + Create
+          + Add Doctor
         </RouterLink>
+        <RouterLink to="/admin/add-department">
+          + Create Department
+          </RouterLink>
       </div>
       <div class="card-body">
         <div v-if="doctorsLoading" class="text-center">
@@ -589,7 +592,6 @@ onMounted(async () => {
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" @click="showHistoryModal = false">Close</button>
-            <button v-if="historyPatient.id" class="btn btn-primary" @click="router.push(`/admin/patients/${historyPatient.id}/history`)">Open full record</button>
           </div>
         </div>
       </div>

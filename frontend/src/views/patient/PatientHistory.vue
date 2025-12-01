@@ -9,6 +9,7 @@ const loading = ref(true);
 const message = ref('');
 const messageClass = ref('alert-success');
 const filterStatus = ref('all'); // all, upcoming, past, completed, cancelled
+let result = null;
 
 async function loadAppointments() {
   loading.value = true;
@@ -58,8 +59,19 @@ function canCancel(appt) {
   // Allow cancelling scheduled or confirmed appointments
   return ['scheduled', 'confirmed'].includes(appt.status);
 }
-
 onMounted(loadAppointments);
+
+async function showReport(appt) {
+  try {
+    result = await api(`/patient/appointment/${appt.id}/report`);
+    alert(`Diagnosis: ${result.diagnosis || 'N/A'}\nPrescription: ${result.prescription || 'N/A'}\nTests Done: ${result.test_done || 'N/A'}\nMedicines: ${Array.isArray(result.medicines) ? result.medicines.join(', ') : (result.medicines || 'N/A')}`); 
+  } catch (err) {
+    message.value = err.message || 'Failed to load report';
+    messageClass.value = 'alert-danger';
+    return;
+  }
+}
+
 </script>
 
 <template>
@@ -117,6 +129,7 @@ onMounted(loadAppointments);
             <th>Specialization</th>
             <th>Date & Time</th>
             <th>Status</th>
+            <th>Report</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -140,6 +153,11 @@ onMounted(loadAppointments);
               >
                 {{ appt.status }}
               </span>
+            </td>
+            <td>
+              <button @click="showReport(appt)" class="btn btn-sm btn-primary me-1">
+                View
+              </button>
             </td>
             <td>
               <button

@@ -4,7 +4,8 @@ from flask_restful import Resource
 from controller.security import RoleProtectedResource
 from datetime import datetime, timedelta
 from controller.database import db
-from controller.models import User, Patient, Doctor, Department, Appointment, Availability
+from controller.models import User, Patient, Doctor, Department, Appointment, Availability, Treatment
+
 
 APPOINTMENT_DURATION_MIN = 30  # minutes
 
@@ -345,3 +346,29 @@ class PatientAllAppointments(RoleProtectedResource):
                 "notes": getattr(appt, "notes", None)
             })
         return {"appointments": result}, 200
+    
+# endpoint to retrieve medicines and diagnosis report for a given appointment
+class PatientAppointmentReport(RoleProtectedResource):
+    required_roles = ["patient"]
+
+    def get(self, appt_id):
+        user_id = get_jwt_identity()
+        patient = Patient.query.filter_by(user_id=user_id).first()
+        if not patient:
+            return {"error": "Patient profile not found"}, 404
+
+        appointment = Appointment.query.filter_by(id=appt_id, patient_id=patient.id).first()
+        if not appointment:
+            return {"error": "Appointment not found"}, 404
+
+        treatment = Treatment.query.filter_by(appointment_id=appointment.id).first()
+        if not treatment:
+            return {"error": "No treatment record found for this appointment"}, 404
+
+        return {
+            "diagnosis": treatment.diagnosis,
+            "test_done": treatment.test_done,
+            "prescription": treatment.prescription,
+            "notes": treatment.notes,
+            "next_visit": treatment.next_visit.strftime("%Y-%m-%d %H:%M") if treatment.next_visit else None
+        }, 200

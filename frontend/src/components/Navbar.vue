@@ -49,7 +49,7 @@ const goHome = () => {
 
 const logout = () => {
   auth.logout();
-  router.push("/login");
+  router.push("/");
 };
 </script>
 

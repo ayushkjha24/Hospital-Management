@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from controller.models import Department, Doctor, Availability, User
 from controller.database import db
 from sqlalchemy import or_
+from controller.cache import cache_result
 
 def serialize_department(dep):
     return {
@@ -36,6 +37,7 @@ def serialize_availability_slot(slot):
     }
 
 class DepartmentsList(Resource):
+    @cache_result()
     def get(self):
         deps = Department.query.order_by(Department.name.asc()).all()
         return {"departments": [serialize_department(d) for d in deps]}, 200
@@ -123,3 +125,17 @@ class SearchDepartments(Resource):
                 "doctors_registered": getattr(dep, "doctors_registered", 0)
             })
         return result, 200
+    
+# route for testing cache
+class TestCache(Resource):
+    def get(self):
+        from controller.cache import test_cache
+        value = test_cache()
+        return {"cache_test_value": value.decode() if value else None}, 200
+    
+# route for celery task testing
+class TestCelery(Resource):
+    def get(self, a, b):
+        from celery_app import add_numbers
+        task = add_numbers.delay(a, b)
+        return {"task_id": task.id}, 202

@@ -67,7 +67,6 @@ onMounted(loadPatientHistory);
   <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h3 class="fw-bold">Patient History</h3>
-      <button class="btn btn-primary btn-sm" @click="router.push(`/admin/patients/${patientId}/history/full`)" v-if="patientId">Open full record</button>
     </div>
 
     <div v-if="message" :class="['alert', messageClass]">{{ message }}</div>

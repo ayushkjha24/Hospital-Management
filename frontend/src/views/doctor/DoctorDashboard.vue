@@ -251,24 +251,14 @@ onMounted(loadData);
               :showBack="false"
             />
           </div>
-
           <div class="modal-footer">
             <button class="btn btn-secondary" @click="showHistoryModal = false">
               Close
             </button>
-
-            <RouterLink
-              v-if="historyPatient.id"
-              :to="`/doctor/patient/${historyPatient.id}/history`"
-              class="btn btn-primary"
-            >
-              Open Full Record
-            </RouterLink>
           </div>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 

@@ -45,6 +45,12 @@ const routes = [
     meta: { requiresAuth: true, roles: ['admin'] }
   },
   {
+    path: '/admin/add-department',
+    name: 'AddDepartment',
+    component: () => import('@/views/admin/AddDepartment.vue'),
+    meta: { requiresAuth: true, roles: ['admin'] }
+  },
+  {
     path: '/admin/doctors/edit/:id',
     name: 'EditDoctor',
     component: () => import('@/views/admin/AddDoctor.vue'),

@@ -348,3 +348,23 @@ class AdminPatientHistory(RoleProtectedResource):
         }
 
         return {"patient": patient_info, "current_appointment": current_appointment, "history": history}, 200
+    
+class DepartmentListResource(RoleProtectedResource):
+    required_roles = ["admin"]
+    
+    def post(self):
+        data = request.get_json() or {}
+        name = data.get("name")
+        description = data.get("description")
+        
+        if not name:
+            return {"message": "Department name is required"}, 400
+        
+        new_department = Department(
+            name=name,
+            description=description
+        )
+        db.session.add(new_department)
+        db.session.commit()
+        
+        return {"message": "Department created", "department_id": new_department.id}, 201
