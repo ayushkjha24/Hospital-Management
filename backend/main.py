@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify, send_from_directory
 from flask_jwt_extended import JWTManager
 from flask_restful import Api
@@ -9,7 +10,8 @@ from datetime import timedelta
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash
 from controller.cache import init_cache
-
+from flask_migrate import upgrade, migrate, init, stamp
+from sqlalchemy.exc import OperationalError
 # ✅ Import celery here (safe – outside create_app)
 from celery_app import celery, init_celery
 from dotenv import load_dotenv
@@ -107,6 +109,17 @@ def create_app():
         # -----------------------------------------------------------------
         # AUTOMATIC ADMIN CREATION
         # -----------------------------------------------------------------
+        try:
+            if not os.path.exists('migrations'):
+                init()
+                stamp()
+            migrate()
+            upgrade()
+            print("✅ Database migrated successfully.")
+        except OperationalError as e:
+            print("⚠️  Database migration failed. Ensure the database server is running.")
+            print(str(e))
+
         from controller.models import User
 
         admin = User.query.filter_by(role="admin").first()
