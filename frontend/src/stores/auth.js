@@ -12,7 +12,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function login(emailInput, password) {
     try {
-      const res = await fetch("http://localhost:5000/auth/login", {
+      const res = await fetch("https://hms-backend-2-asgl.onrender.com/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: emailInput, password }),
@@ -48,7 +48,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function register(name, emailInput, password) {
     try {
-      const res = await fetch("http://localhost:5000/auth/register", {
+      const res = await fetch("https://hms-backend-2-asgl.onrender.com/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email: emailInput, password }),
