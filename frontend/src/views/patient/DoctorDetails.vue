@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { patientAPI } from "@/api/patient";
+import * as patientAPI from "@/api/patient";
 
 const route = useRoute();
 const router = useRouter();
